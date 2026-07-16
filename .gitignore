@@ -1,0 +1,7 @@
+# Archivos innecesarios y binarios
+env_facial/
+__pycache__/
+base_de_datos/*.db
+fotos_registros/
+.vscode/
+*.pyc
