@@ -1,6 +1,6 @@
 """
 app.py - Aplicación para Flet 0.21.2 con Integración OpenCV + YOLO
-Diseño Neumórfico
+Diseño Neumórfico con Paleta Adobe Color & Gradiente Moderno
 """
 
 import flet as ft
@@ -13,17 +13,27 @@ import base64
 from smartface_engine import SmartFaceEngine
 
 # ============================================
-# COLORES Y ESTILOS NEUMÓRFICOS
+# PALETA DE COLORES ADOBE COLOR
 # ============================================
 
-BG_COLOR = "#E0E5EC"
-TEXT_COLOR = "#4A5A6E"
-ACCENT_COLOR = "#2979FF"
+BG_COLOR = "#F2F2F2"       # Tono base extraído de la paleta
+TEXT_COLOR = "#2C3E50"     # Gris oscuro sofisticado para texto
+ACCENT_BLUE = "#353FF2"    # Azul vibrante principal
+ACCENT_MID = "#3084F2"     # Azul intermedio
+ACCENT_LIGHT = "#2E97F2"   # Azul claro / cyan
+
+# Gradiente moderno extraído de la paleta
+GRADIENT_MODERNO = ft.LinearGradient(
+    begin=ft.alignment.top_left,
+    end=ft.alignment.bottom_right,
+    colors=["#353FF2", "#3565F2", "#3084F2", "#2E97F2"]
+)
 
 def get_neumorphic_shadows():
+    """Sombras optimizadas para la base #F2F2F2"""
     return [
-        ft.BoxShadow(spread_radius=1, blur_radius=12, color="white", offset=ft.Offset(-6, -6)),
-        ft.BoxShadow(spread_radius=1, blur_radius=12, color="#A3B1C6", offset=ft.Offset(6, 6))
+        ft.BoxShadow(spread_radius=1, blur_radius=10, color="white", offset=ft.Offset(-5, -5)),
+        ft.BoxShadow(spread_radius=1, blur_radius=10, color="#D0D5DD", offset=ft.Offset(5, 5))
     ]
 
 def neu_container(content=None, padding=20, border_radius=20, expand=False, width=None, height=None, on_click=None, shape=None):
@@ -47,14 +57,13 @@ class UniversityApp(ft.UserControl):
         self.expand = True 
         self.active_tab = "Escaner"
         self.scanning = False
-        self.engine = None  # Inicializaremos el motor de IA cuando se abra la app
+        self.engine = None
         
-        # Píxel transparente en Base64 para inicializar ft.Image sin errores en Flet 0.21.2
+        # Píxel transparente en Base64 para evitar errores de inicialización
         self.transparent_pixel = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
         )
         
-        # Componente de imagen donde inyectaremos los frames de OpenCV
         self.video_image = ft.Image(
             src_base64=self.transparent_pixel,
             width=640,
@@ -89,7 +98,7 @@ class UniversityApp(ft.UserControl):
             content=ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Icon(ft.icons.FACE_RETOUCHING_NATURAL, size=50, color=ACCENT_COLOR),
+                    ft.Icon(ft.icons.FACE_RETOUCHING_NATURAL, size=50, color=ACCENT_BLUE),
                     ft.Text("SmartFace", size=20, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
                     ft.Container(height=40),
                     self._build_menu_button("Escaner", ft.icons.DOCUMENT_SCANNER),
@@ -101,12 +110,16 @@ class UniversityApp(ft.UserControl):
 
     def _build_menu_button(self, text, icon):
         is_active = self.active_tab == text
-        color = ACCENT_COLOR if is_active else TEXT_COLOR
+        color = "white" if is_active else TEXT_COLOR
+        
         return ft.Container(
             padding=ft.padding.symmetric(horizontal=20, vertical=15),
             border_radius=15,
-            bgcolor=BG_COLOR if not is_active else "#D1D9E6",
-            shadow=get_neumorphic_shadows() if not is_active else None,
+            gradient=GRADIENT_MODERNO if is_active else None,
+            bgcolor=BG_COLOR if not is_active else None,
+            shadow=get_neumorphic_shadows() if not is_active else [
+                ft.BoxShadow(spread_radius=1, blur_radius=8, color="#353FF2", offset=ft.Offset(0, 4))
+            ],
             content=ft.Row(
                 spacing=15,
                 controls=[
@@ -142,16 +155,17 @@ class UniversityApp(ft.UserControl):
             spacing=20,
             controls=[
                 self.video_image,
-                ft.Icon(ft.icons.VIDEOCAM_OUTLINED, size=80, color=TEXT_COLOR),
+                ft.Icon(ft.icons.VIDEOCAM_OUTLINED, size=80, color=ACCENT_MID),
                 ft.Text("Cámara (Inactiva)", size=18, weight=ft.FontWeight.W_500, color=TEXT_COLOR),
                 
+                # Botón Escanear con el Gradiente Neumórfico Moderno
                 ft.Container(
                     margin=ft.padding.only(top=20),
                     content=ft.Text("Escanear", size=16, weight=ft.FontWeight.BOLD, color="white"),
-                    bgcolor=ACCENT_COLOR,
+                    gradient=GRADIENT_MODERNO,
                     padding=ft.padding.symmetric(horizontal=50, vertical=15),
                     border_radius=30,
-                    shadow=[ft.BoxShadow(spread_radius=1, blur_radius=10, color=ACCENT_COLOR, offset=ft.Offset(0, 4))],
+                    shadow=[ft.BoxShadow(spread_radius=1, blur_radius=12, color="#353FF2", offset=ft.Offset(0, 5))],
                     on_click=self._start_scan
                 )
             ]
@@ -174,7 +188,7 @@ class UniversityApp(ft.UserControl):
             controls=[
                 neu_container(
                     shape=ft.BoxShape.CIRCLE, width=200,
-                    content=self._build_circular_chart("Solvencia", pct_solv, "#00C853")
+                    content=self._build_circular_chart("Solvencia", pct_solv, ACCENT_BLUE)
                 ),
                 neu_container(
                     shape=ft.BoxShape.CIRCLE, width=200,
@@ -188,7 +202,7 @@ class UniversityApp(ft.UserControl):
                         spacing=5,
                         controls=[
                             ft.Text("Estudiantes registrados:", size=16, color=TEXT_COLOR),
-                            ft.Text(str(total), size=48, weight=ft.FontWeight.BOLD, color=ACCENT_COLOR)
+                            ft.Text(str(total), size=48, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE)
                         ]
                     )
                 )
@@ -229,6 +243,7 @@ class UniversityApp(ft.UserControl):
         
         self.camera_content.controls = [
             self.video_image,
+            ft.ProgressRing(color=ACCENT_BLUE, width=40, height=40),
             ft.Text("Iniciando motor YOLO y cámara...", size=16, weight=ft.FontWeight.W_500, color=TEXT_COLOR)
         ]
         self.update()
@@ -271,7 +286,7 @@ class UniversityApp(ft.UserControl):
         self.video_image.visible = False
         
         es_activo = estudiante.get('es_activo', False)
-        color_estado = "#00C853" if es_activo else "#FF1744"
+        color_estado = ACCENT_BLUE if es_activo else "#FF1744"
         texto_estado = "Activo/Solvente" if es_activo else "Moroso/Inactivo"
 
         self.camera_content.controls = [
@@ -283,9 +298,10 @@ class UniversityApp(ft.UserControl):
             ft.Container(
                 margin=ft.padding.only(top=15),
                 content=ft.Text("Volver a escanear", size=14, weight=ft.FontWeight.BOLD, color="white"),
-                bgcolor=TEXT_COLOR,
+                gradient=GRADIENT_MODERNO,
                 padding=ft.padding.symmetric(horizontal=30, vertical=10),
                 border_radius=20,
+                shadow=[ft.BoxShadow(spread_radius=1, blur_radius=8, color="#353FF2", offset=ft.Offset(0, 3))],
                 on_click=self._reset_scanner
             )
         ]
@@ -295,15 +311,15 @@ class UniversityApp(ft.UserControl):
         self.video_image.visible = False
         self.camera_content.controls = [
             self.video_image,
-            ft.Icon(ft.icons.VIDEOCAM_OUTLINED, size=80, color=TEXT_COLOR),
+            ft.Icon(ft.icons.VIDEOCAM_OUTLINED, size=80, color=ACCENT_MID),
             ft.Text("Cámara (Inactiva)", size=18, weight=ft.FontWeight.W_500, color=TEXT_COLOR),
             ft.Container(
                 margin=ft.padding.only(top=20),
                 content=ft.Text("Escanear", size=16, weight=ft.FontWeight.BOLD, color="white"),
-                bgcolor=ACCENT_COLOR,
+                gradient=GRADIENT_MODERNO,
                 padding=ft.padding.symmetric(horizontal=50, vertical=15),
                 border_radius=30,
-                shadow=[ft.BoxShadow(spread_radius=1, blur_radius=10, color=ACCENT_COLOR, offset=ft.Offset(0, 4))],
+                shadow=[ft.BoxShadow(spread_radius=1, blur_radius=12, color="#353FF2", offset=ft.Offset(0, 5))],
                 on_click=self._start_scan
             )
         ]
