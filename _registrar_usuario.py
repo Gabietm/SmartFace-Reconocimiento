@@ -1,14 +1,18 @@
-import sqlite3
+"""
+registro_usuario.py - Registro de estudiantes e inserción de firma facial en SmartFace
+"""
+
 import os
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
+from bd import UniversityDatabase  # Conexión directa con tu gestor de BD
 
 # Inicializamos el motor de InsightFace
 app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
 app.prepare(ctx_id=0, det_size=(640, 480))
 
-def procesar_y_guardar_usuario(cedula, nombres, apellidos, carrera, es_activo):
+def procesar_y_guardar_usuario(cedula: str, nombre: str, apellido: str, email: str, carrera: str, semestre: int = 1):
     ruta_foto = f"fotos_registros/{cedula}.jpg"
     
     if not os.path.exists(ruta_foto):
@@ -16,46 +20,53 @@ def procesar_y_guardar_usuario(cedula, nombres, apellidos, carrera, es_activo):
 
     print("Procesando firma facial con ArcFace (InsightFace)...")
     try:
-        # Cargar imagen y extraer embedding
+        # 1. Cargar imagen y extraer embedding
         img = cv2.imread(ruta_foto)
         faces = app.get(img)
         
         if len(faces) == 0:
             return False, "Error: No se detectó ningún rostro en la foto."
         
-        # Convertimos el array de numpy a lista para poder guardarlo como texto en SQL
-        firma = str(faces[0].embedding.tolist())
+        # Pasamos directamente el array de numpy (InsightFace nos da ndarray)
+        embedding = faces[0].embedding
 
-        # Conectar a la base de datos
-        conexion = sqlite3.connect('base_de_datos/control_acceso.db')
-        cursor = conexion.cursor()
+        # 2. Conectar a la base de datos mediante bd.py
+        db = UniversityDatabase()
         
-        # Insertamos o reemplazamos el usuario
-        # es_activo se convierte a int: True -> 1, False -> 0
-        cursor.execute('''
-            INSERT OR REPLACE INTO usuarios (cedula, nombres, apellidos, carrera_especialidad, estado_financiero, firma_facial)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (cedula, nombres, apellidos, carrera, int(es_activo), firma))
+        # 3. Registrar estudiante
+        estudiante_id = db.registrar_estudiante(
+            cedula=cedula,
+            nombre=nombre,
+            apellido=apellido,
+            email=email,
+            carrera=carrera,
+            semestre=semestre,
+            firma_facial=embedding
+        )
         
-        conexion.commit()
-        conexion.close()
-        
-        estado_texto = "Activo" if es_activo else "Suspendido"
-        return True, f"Registro exitoso: {nombres} {apellidos} guardado como {estado_texto}."
+        return True, f"¡Registro exitoso! {nombre} {apellido} guardado con ID #{estudiante_id}."
         
     except Exception as e:
         return False, f"Error en el proceso de registro: {str(e)}"
 
 if __name__ == '__main__':
-    print("--- Registro de Usuario SmartFace (Versión Booleana) ---")
+    print("--- Registro de Estudiante SmartFace Pro ---")
     cedula = input("Cédula: ")
-    nombres = input("Nombres: ")
-    apellidos = input("Apellidos: ")
+    nombre = input("Nombre: ")
+    apellido = input("Apellido: ")
+    email = input("Email: ")
     carrera = input("Carrera: ")
     
-    # Captura del estado booleano
-    entrada = input("¿Está activo? (1 = Sí, 0 = No): ")
-    es_activo = True if entrada == '1' else False
+    sem_in = input("Semestre (por defecto 1): ")
+    semestre = int(sem_in) if sem_in.isdigit() else 1
     
-    exito, msg = procesar_y_guardar_usuario(cedula, nombres, apellidos, carrera, es_activo)
-    print(msg)
+    exito, msg = procesar_y_guardar_usuario(
+        cedula=cedula, 
+        nombre=nombre, 
+        apellido=apellido, 
+        email=email, 
+        carrera=carrera, 
+        semestre=semestre
+    )
+    
+    print("\n" + msg)
