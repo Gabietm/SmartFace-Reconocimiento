@@ -12,6 +12,7 @@ import datetime
 import numpy as np
 import flet as ft
 from bd import UniversityDatabase  # Importación de tu base de datos en bd.py
+from tasa_bcv import MonitorBCV
 
 try:
     from _registrar_usuario import procesar_y_guardar_usuario
@@ -52,6 +53,7 @@ class SmartFaceDashboard(ft.UserControl):
         self.scanning = False
         self.current_frame = None
         self.editing_cedula = None 
+        self.monitor_bcv = MonitorBCV()
         
         try:
             self.db = UniversityDatabase()
@@ -615,7 +617,7 @@ class SmartFaceDashboard(ft.UserControl):
             self.update()
 
     # ==========================================
-    # VISTA 2: FINANZAS Y PAGOS (Actualizada)
+    # VISTA 2: FINANZAS Y PAGOS (Con Tasa Automática)
     # ==========================================
     def vista_finanzas(self):
         txt_buscar_cedula = ft.TextField(
@@ -658,7 +660,7 @@ class SmartFaceDashboard(ft.UserControl):
         resultado_finanzas = ft.Column(expand=True, spacing=15, scroll=ft.ScrollMode.AUTO)
 
         def abrir_dialogo_pago(est_id, cuota_id, monto_cuota):
-            txt_metodo = ft.TextField(label="Método de Pago (Transferencia, Pago con Tarjeta)", value="Transferencia", border_radius=10, bgcolor=BG_COLOR)
+            txt_metodo = ft.TextField(label="Método de Pago (Transferencia, Pago Móvil)", value="Transferencia", border_radius=10, bgcolor=BG_COLOR)
             txt_referencia = ft.TextField(label="Referencia / Comprobante (Opcional)", border_radius=10, bgcolor=BG_COLOR)
             lbl_mensaje_modal = ft.Text("", size=12)
 
@@ -717,6 +719,9 @@ class SmartFaceDashboard(ft.UserControl):
                 resultado_finanzas.update()
                 return
 
+            # --- OBTENER TASA DEL DÍA AUTOMÁTICA ---
+            tasa_euro = self.monitor_bcv.obtener_precio_euro()
+
             try:
                 with self.db._get_connection() as conn:
                     cursor = conn.execute("SELECT * FROM estudiantes WHERE cedula = ?", (cedula_buscada,))
@@ -753,7 +758,7 @@ class SmartFaceDashboard(ft.UserControl):
                 monto_adeudado = monto_total - monto_pagado
                 porcentaje = int((pagadas_count / total_cuotas * 100)) if total_cuotas > 0 else 100
                 
-                # Evaluación de solvencia por fecha límite en finanzas
+                # Evaluación de solvencia por fecha límite
                 fecha_hoy = datetime.date.today().strftime('%Y-%m-%d')
                 es_solvente = True
                 with self.db._get_connection() as conn:
@@ -771,6 +776,21 @@ class SmartFaceDashboard(ft.UserControl):
 
                 color_estado = "#2E7D32" if es_solvente else "#FF1744"
                 estado_str = "SOLVENTE" if es_solvente else "MOROSO"
+
+                # Banner informativo con la tasa del BCV obtenida automáticamente
+                banner_tasa = neu_container(
+                    padding=10,
+                    content=ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Row([
+                                ft.Icon(ft.icons.EURO, color=ACCENT_BLUE, size=18),
+                                ft.Text(f"Tasa BCV del Día (EUR): Bs. {tasa_euro:,.2f}", size=13, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
+                            ]),
+                            ft.Text("Actualizado automáticamente vía pydolarvenezuela", size=11, color="#64748B")
+                        ]
+                    )
+                )
 
                 card_resumen = ft.Row(
                     spacing=15,
@@ -793,7 +813,7 @@ class SmartFaceDashboard(ft.UserControl):
                             expand=True, padding=15,
                             content=ft.Column([
                                 ft.Text("Monto Adeudado", size=11, color="#64748B"),
-                                ft.Text(f"${monto_adeudado:.2f}", size=16, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
+                                ft.Text(f"€ {monto_adeudado:.2f} (Bs. {monto_adeudado * tasa_euro:,.2f})", size=13, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
                             ])
                         ),
                         neu_container(
@@ -819,12 +839,22 @@ class SmartFaceDashboard(ft.UserControl):
                         c_monto = cuota['monto'] if hasattr(cuota, 'keys') else cuota[3]
                         c_venc = cuota['fecha_vencimiento'] if hasattr(cuota, 'keys') else cuota[4]
 
+                        # Cálculo del equivalente en Bolívares al vuelo
+                        monto_bs = c_monto * tasa_euro
+
                         pagada = c_id in cuotas_pagadas_ids
                         estado_cuota = "Pagada" if pagada else "Pendiente"
                         color_badge = "#2E7D32" if pagada else "#FF1744"
 
                         acciones_cuota = [
-                            ft.Text(f"${c_monto:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
+                            ft.Column(
+                                spacing=0,
+                                horizontal_alignment=ft.CrossAxisAlignment.END,
+                                controls=[
+                                    ft.Text(f"€ {c_monto:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
+                                    ft.Text(f"Bs. {monto_bs:,.2f}", size=10, color="#64748B")
+                                ]
+                            ),
                             ft.Container(
                                 padding=ft.padding.symmetric(horizontal=8, vertical=2),
                                 border_radius=5,
@@ -851,7 +881,7 @@ class SmartFaceDashboard(ft.UserControl):
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     controls=[
                                         ft.Text(f"Cuota #{c_num} - {c_desc} | Vencimiento: {c_venc}", size=12, color=TEXT_COLOR),
-                                        ft.Row(spacing=8, controls=acciones_cuota)
+                                        ft.Row(spacing=12, controls=acciones_cuota, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                                     ]
                                 )
                             )
@@ -859,7 +889,7 @@ class SmartFaceDashboard(ft.UserControl):
                 else:
                     detalle_cuotas_col.controls.append(ft.Text("No hay cuotas definidas para este periodo académico.", size=12, color="#64748B"))
 
-                resultado_finanzas.controls.extend([card_resumen, ft.Divider(color="#D0D5DD"), detalle_cuotas_col])
+                resultado_finanzas.controls.extend([banner_tasa, card_resumen, ft.Divider(color="#D0D5DD"), detalle_cuotas_col])
 
             except Exception as ex:
                 resultado_finanzas.controls.append(ft.Text(f"Error al consultar finanzas: {str(ex)}", color="#FF1744", weight=ft.FontWeight.BOLD))
