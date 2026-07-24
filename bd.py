@@ -1,5 +1,5 @@
 """
-database.py - Base de datos universitaria con estudiantes y cuotas
+bd.py - Base de datos universitaria con estudiantes y cuotas
 """
 
 import sqlite3
@@ -32,7 +32,7 @@ class UniversityDatabase:
     def _init_database(self):
         """Inicializa la base de datos con todas las tablas"""
         with self._get_connection() as conn:
-            # Tabla: ESTUDIANTES (ahora con firma_facial)
+            # Tabla: ESTUDIANTES
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS estudiantes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,11 +148,11 @@ class UniversityDatabase:
             return cursor.lastrowid
     
     def obtener_todos_estudiantes(self):
-        """Obtiene todos los estudiantes para el motor de reconocimiento"""
+        """Obtiene todos los estudiantes con sus campos individuales para el admin y motor"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, nombre, apellido, firma_facial, estado_financiero 
+                SELECT id, cedula, nombre, apellido, email, telefono, carrera, semestre, firma_facial, estado_financiero, activo 
                 FROM estudiantes 
                 WHERE activo = 1
             """)
@@ -161,24 +161,30 @@ class UniversityDatabase:
             estudiantes = []
             for row in rows:
                 firma = None
-                if row[3]:
+                if row['firma_facial']:
                     try:
-                        firma = np.array(json.loads(row[3]))
+                        firma = np.array(json.loads(row['firma_facial']))
                     except:
                         firma = None
                 
                 estudiantes.append({
-                    "id": row[0],
-                    "nombre": f"{row[1]} {row[2]}",
+                    "id": row['id'],
+                    "cedula": row['cedula'],
+                    "nombre": row['nombre'],
+                    "apellido": row['apellido'],
+                    "email": row['email'],
+                    "telefono": row['telefono'],
+                    "carrera": row['carrera'],
+                    "semestre": row['semestre'],
                     "firma": firma,
-                    "es_activo": bool(row[4])
+                    "estado_financiero": row['estado_financiero'],
+                    "es_activo": bool(row['activo'])
                 })
             return estudiantes
     
     def actualizar_estado_financiero(self, estudiante_id: int):
         """Actualiza automáticamente el estado financiero del estudiante"""
         with self._get_connection() as conn:
-            # Verificar cuotas pendientes del periodo activo
             estado = conn.execute("""
                 SELECT 
                     CASE 
@@ -234,7 +240,6 @@ class UniversityDatabase:
                 (estudiante_id, cuota_id, monto, metodo, referencia)
             )
             conn.commit()
-            # Actualizar estado financiero
             self.actualizar_estado_financiero(estudiante_id)
             return cursor.lastrowid
     
@@ -243,7 +248,6 @@ class UniversityDatabase:
     def obtener_estado_financiero(self, estudiante_id: int) -> Dict:
         """Obtiene el estado financiero completo de un estudiante"""
         with self._get_connection() as conn:
-            # Obtener estudiante
             estudiante = conn.execute(
                 "SELECT * FROM estudiantes WHERE id = ?", (estudiante_id,)
             ).fetchone()
@@ -251,7 +255,6 @@ class UniversityDatabase:
             if not estudiante:
                 return None
             
-            # Obtener periodo activo
             periodo = conn.execute(
                 "SELECT * FROM periodos WHERE activo = 1 LIMIT 1"
             ).fetchone()
@@ -262,7 +265,6 @@ class UniversityDatabase:
                     'error': 'No hay periodo activo'
                 }
             
-            # Obtener cuotas con estado de pago
             cuotas = conn.execute("""
                 SELECT 
                     c.*,
