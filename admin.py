@@ -945,8 +945,8 @@ class SmartFaceDashboard(ft.UserControl):
         )
         
         txt_num_cuota = self._neu_text_field("Número de Cuota (Ej. 1, 2, 3)", ft.icons.NUMBERS)
-        txt_descripcion_cuota = self._neu_text_field("Descripción (Ej. Cuota 1 / Matrícula)", ft.icons.DESCRIPTION)
-        txt_monto_cuota = self._neu_text_field("Monto de Cuota ($)", ft.icons.ATTACH_MONEY)
+        txt_descripcion_cuota = self._neu_text_field("Descripción (Ej. Cuota 1)", ft.icons.DESCRIPTION)
+        txt_monto_cuota = self._neu_text_field("Monto de Cuota (€)", ft.icons.EURO)
         
         txt_vencimiento_cuota, row_vencimiento_cuota = self._crear_campo_fecha_con_picker("Fecha Vencimiento (AAAA-MM-DD)", ft.icons.TIMER)
         lbl_msg_cuota = ft.Text("", size=12)
