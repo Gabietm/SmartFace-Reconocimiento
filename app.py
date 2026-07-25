@@ -408,7 +408,10 @@ class UniversityApp(ft.UserControl):
         cap = cv2.VideoCapture(0)
         self.video_image.visible = True
         self.camera_content.controls = [self.video_image]
-        self.update()
+        try:
+            self.update()
+        except Exception:
+            pass
 
         while self.scanning and cap.isOpened():
             ret, frame = cap.read()
@@ -420,7 +423,10 @@ class UniversityApp(ft.UserControl):
             img_base64 = base64.b64encode(buffer).decode('utf-8')
             
             self.video_image.src_base64 = img_base64
-            self.update()
+            try:
+                self.update()
+            except Exception:
+                break
 
             estudiante = self.engine.obtener_ultimo_estudiante()
             
