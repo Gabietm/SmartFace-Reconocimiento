@@ -13,7 +13,6 @@ from bd import UniversityDatabase
 def worker_ia(cola_entrada, cola_salida, db_path):
     """Worker que procesa los rostros en paralelo utilizando una ruta de BD propia para evitar conflictos"""
     
-    # Cada proceso hijo instancia su propia conexión a la BD y su modelo InsightFace
     db = UniversityDatabase(db_path)
     
     from insightface.app import FaceAnalysis
@@ -24,7 +23,18 @@ def worker_ia(cola_entrada, cola_salida, db_path):
     print(f"🧠 Worker iniciado con {len(usuarios)} estudiantes cargados correctamente.")
     
     while True:
-        tracker_id, recorte = cola_entrada.get()
+        mensaje = cola_entrada.get()
+        if mensaje is None:
+            break
+            
+        tracker_id, recorte = mensaje
+        
+        # Señal para recargar estudiantes desde la base de datos
+        if tracker_id == "RELOAD":
+            usuarios = db.obtener_todos_estudiantes()
+            print(f"🔄 Worker recargó la base de datos. Total estudiantes: {len(usuarios)}")
+            continue
+            
         if tracker_id is None:
             break
             
@@ -45,7 +55,6 @@ def worker_ia(cola_entrada, cola_salida, db_path):
                     for u in usuarios:
                         if u["firma"] is not None:
                             firma_u = np.array(u["firma"])
-                            # Cálculo preciso de distancia coseno con normalización
                             norm_emb = np.linalg.norm(emb)
                             norm_firma = np.linalg.norm(firma_u)
                             
@@ -163,6 +172,19 @@ class SmartFaceEngine:
                 if resultado.get("id") is not None:
                     return resultado
         return None
+    
+    def recargar_datos(self):
+        """Envía una señal al proceso worker para actualizar los rostros y estados desde la BD"""
+        try:
+            self.cola_entrada.put(("RELOAD", None))
+        except Exception as e:
+            print(f"Error al enviar orden de recarga al worker: {e}")
+            
+    def reiniciar_sesion(self):
+        """Limpia los resultados anteriores para permitir un nuevo escaneo limpio"""
+        self.resultados.clear()
+        self.en_proceso.clear()
+        self.recargar_datos()
     
     def cerrar(self):
         """Finaliza ordenadamente el proceso worker de IA y libera recursos"""
