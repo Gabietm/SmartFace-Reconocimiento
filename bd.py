@@ -308,10 +308,13 @@ class UniversityDatabase:
     # ========== LOGS ==========
     
     def registrar_log(self, estudiante_id: int, similitud: float, reconocido: bool):
+        # Generamos la hora local exacta del sistema operativo
+        timestamp_local = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         with self._get_connection() as conn:
             conn.execute(
-                "INSERT INTO logs_reconocimiento (estudiante_id, similitud, reconocido) VALUES (?, ?, ?)",
-                (estudiante_id, similitud, reconocido)
+                "INSERT INTO logs_reconocimiento (estudiante_id, similitud, reconocido, timestamp) VALUES (?, ?, ?, ?)",
+                (estudiante_id, similitud, reconocido, timestamp_local)
             )
             conn.commit()
     
@@ -320,7 +323,7 @@ class UniversityDatabase:
             rows = conn.execute("""
                 SELECT l.*, e.nombre, e.apellido, e.cedula
                 FROM logs_reconocimiento l
-                LEFT JOIN estudiantes e ON l.estudiante_id = e.id
+                JOIN estudiantes e ON l.estudiante_id = e.id
                 ORDER BY l.timestamp DESC
                 LIMIT ?
             """, (limite,)).fetchall()

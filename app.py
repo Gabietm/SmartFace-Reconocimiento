@@ -12,6 +12,7 @@ from smartface_engine import SmartFaceEngine
 from bd import UniversityDatabase
 from config import DB_PATH
 import datetime
+from tasa_bcv import MonitorBCV
 
 # ============================================
 # PALETA DE COLORES ADOBE COLOR
@@ -59,6 +60,7 @@ class UniversityApp(ft.UserControl):
         self.active_tab = "Escaner"
         self.scanning = False
         self.engine = None
+        self.monitor_bcv = MonitorBCV()
         
         # Píxel transparente en Base64 para evitar errores de inicialización
         self.transparent_pixel = (
@@ -464,6 +466,9 @@ class UniversityApp(ft.UserControl):
 
                 es_solvente = True
                 if periodo_activo_id and est_id_real:
+                    # Obtener la tasa del día automáticamente mediante el script MonitorBCV
+                    tasa_euro = self.monitor_bcv.obtener_precio_euro()
+                    
                     with db._get_connection() as conn:
                         # Usamos SELECT * para evitar errores de columnas faltantes y adaptarnos al esquema de bd
                         c_cursor = conn.execute(
@@ -504,11 +509,8 @@ class UniversityApp(ft.UserControl):
                                             c_euro = c[k]
                                             break
                                             
-                                    c_bs = 0.0
-                                    for k in ['monto_bs', 'precio_bs', 'bs']:
-                                        if k in keys:
-                                            c_bs = c[k]
-                                            break
+                                    # Cálculo exacto de la equivalencia en bolívares multiplicando los euros de la BD por la tasa BCV
+                                    c_bs = c_euro * tasa_euro if tasa_euro > 0 else 0.0
                                     
                                     estudiante_completo['cuota_pendiente'] = c_nombre
                                     estudiante_completo['precio_euro'] = c_euro

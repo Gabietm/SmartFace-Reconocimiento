@@ -69,6 +69,18 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_carrera = self._neu_text_field("Carrera", ft.icons.SCHOOL_OUTLINED)
         self.txt_semestre = self._neu_text_field("Semestre", ft.icons.FORMAT_LIST_BULLETED)
         
+        # Barra de búsqueda por cédula para la lista de estudiantes
+        self.txt_buscar_estudiante = ft.TextField(
+            label="Buscar por Cédula",
+            prefix_icon=ft.icons.SEARCH,
+            border_radius=15,
+            bgcolor=BG_COLOR,
+            color=TEXT_COLOR,
+            label_style=ft.TextStyle(color=TEXT_COLOR),
+            on_change=self.cargar_estudiantes,
+            expand=True
+        )
+        
         self.transparent_pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
         self.video_image = ft.Image(
             src_base64=self.transparent_pixel,
@@ -301,8 +313,22 @@ class SmartFaceDashboard(ft.UserControl):
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                         controls=[
                                             ft.Text("Estudiantes Registrados", size=18, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
-                                            ft.IconButton(icon=ft.icons.REFRESH, icon_color=TEXT_COLOR, on_click=lambda e: threading.Thread(target=self.cargar_estudiantes, daemon=True).start())
+                                            ft.IconButton(icon=ft.icons.REFRESH, icon_color=TEXT_COLOR, tooltip="Actualizar lista", on_click=lambda e: threading.Thread(target=self.cargar_estudiantes, daemon=True).start())
                                         ]
+                                    ),
+                                    # Barra de búsqueda integrada por cédula
+                                    ft.Row(
+                                        controls=[
+                                            self.txt_buscar_estudiante,
+                                            ft.IconButton(
+                                                icon=ft.icons.CLEAR,
+                                                icon_color=TEXT_COLOR,
+                                                tooltip="Limpiar búsqueda",
+                                                on_click=self._limpiar_busqueda_estudiantes
+                                            )
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        spacing=10
                                     ),
                                     self.lista_estudiantes,
                                     bottom_stats_bar
@@ -314,14 +340,28 @@ class SmartFaceDashboard(ft.UserControl):
             ]
         )
 
-    def cargar_estudiantes(self):
+    def _limpiar_busqueda_estudiantes(self, e):
+        self.txt_buscar_estudiante.value = ""
+        self.txt_buscar_estudiante.update()
+        self.cargar_estudiantes()
+
+    def cargar_estudiantes(self, e=None):
         if not self.db:
             return
         try:
-            estudiantes = self.db.obtener_todos_estudiantes()
+            estudiantes_todos = self.db.obtener_todos_estudiantes()
+            
+            # Filtrar por cédula si hay texto escrito en el buscador
+            filtro_cedula = self.txt_buscar_estudiante.value.strip().lower() if hasattr(self, 'txt_buscar_estudiante') and self.txt_buscar_estudiante.value else ""
+            
+            if filtro_cedula:
+                estudiantes = [est for est in estudiantes_todos if filtro_cedula in str(est.get("cedula", "")).lower()]
+            else:
+                estudiantes = estudiantes_todos
+
             self.lista_estudiantes.controls.clear()
             
-            total = len(estudiantes)
+            total = len(estudiantes_todos)
             solventes = 0
             morosos = 0
 
@@ -333,13 +373,9 @@ class SmartFaceDashboard(ft.UserControl):
                 if p_row:
                     periodo_activo_id = p_row['id'] if hasattr(p_row, 'keys') else p_row[0]
 
-            for est in estudiantes:
+            # Calcular solventes y morosos basados en el total general del sistema
+            for est in estudiantes_todos:
                 est_id = est['id'] if hasattr(est, 'keys') else est[0]
-                cedula = est["cedula"]
-                nombre_completo = f"{est['nombre']} {est['apellido']}"
-                carrera = est.get("carrera", "N/D")
-
-                # Validación de solvencia progresiva por fecha de vencimiento
                 es_solvente = True
                 if periodo_activo_id:
                     with self.db._get_connection() as conn:
@@ -367,10 +403,44 @@ class SmartFaceDashboard(ft.UserControl):
 
                 if es_solvente:
                     solventes += 1
+                else:
+                    morosos += 1
+
+            # Renderizar los estudiantes filtrados en la lista visual
+            for est in estudiantes:
+                est_id = est['id'] if hasattr(est, 'keys') else est[0]
+                cedula = est["cedula"]
+                nombre_completo = f"{est['nombre']} {est['apellido']}"
+                carrera = est.get("carrera", "N/D")
+
+                # Comprobar su solvencia individual para la etiqueta visual
+                es_solvente = True
+                if periodo_activo_id:
+                    with self.db._get_connection() as conn:
+                        c_cursor = conn.execute(
+                            "SELECT id FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
+                            (periodo_activo_id, fecha_hoy)
+                        )
+                        cuotas_vencidas = c_cursor.fetchall()
+                        if cuotas_vencidas:
+                            ids_cuotas_vencidas = [row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas]
+                            placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
+                            p_cursor = conn.execute(
+                                f"""SELECT DISTINCT cuota_id FROM pagos 
+                                   WHERE estudiante_id = ? AND cuota_id IN ({placeholders})""",
+                                [est_id] + ids_cuotas_vencidas
+                            )
+                            pagos_vencidos = p_cursor.fetchall()
+                            ids_pagados = {row['cuota_id'] if hasattr(row, 'keys') else row[0] for row in pagos_vencidos}
+                            for c_id in ids_cuotas_vencidas:
+                                if c_id not in ids_pagados:
+                                    es_solvente = False
+                                    break
+
+                if es_solvente:
                     estado_str = "Solvente"
                     color_badge = ACCENT_BLUE
                 else:
-                    morosos += 1
                     estado_str = "Moroso"
                     color_badge = "#FF1744"
 
@@ -417,7 +487,7 @@ class SmartFaceDashboard(ft.UserControl):
                                             icon_color="#FF1744",
                                             icon_size=16,
                                             tooltip="Eliminar Estudiante",
-                                            on_click=lambda e, c=cedula: self._eliminar_estudiante(c)
+                                            on_click=lambda e, c=cedula, nom=nombre_completo: self._confirmar_eliminar_estudiante(c, nom)
                                         )
                                     ]
                                 )
@@ -465,6 +535,25 @@ class SmartFaceDashboard(ft.UserControl):
         self.btn_cancelar.visible = False
         self.status_text.value = "Formulario restablecido."
         self.update()
+
+    # Cuadro de diálogo para confirmar eliminación sin accidentes
+    def _confirmar_eliminar_estudiante(self, cedula, nombre_completo):
+        def ejecutar_eliminacion(e):
+            self.page.dialog.open = False
+            self.page.update()
+            self._eliminar_estudiante(cedula)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Confirmar Eliminación", weight=ft.FontWeight.BOLD, color="#FF1744"),
+            content=ft.Text(f"¿Está seguro de que desea eliminar al estudiante {nombre_completo} (Cédula: {cedula})?\n\nEsta acción borrará sus datos, pagos asociados y archivo biométrico permanentemente.", size=13, color=TEXT_COLOR),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(self.page.dialog, 'open', False) or self.page.update()),
+                ft.ElevatedButton("Sí, Eliminar", bgcolor="#FF1744", color="white", on_click=ejecutar_eliminacion)
+            ]
+        )
+        self.page.dialog = dlg
+        dlg.open = True
+        self.page.update()
 
     def _eliminar_estudiante(self, cedula):
         try:
@@ -839,7 +928,6 @@ class SmartFaceDashboard(ft.UserControl):
                         c_monto = cuota['monto'] if hasattr(cuota, 'keys') else cuota[3]
                         c_venc = cuota['fecha_vencimiento'] if hasattr(cuota, 'keys') else cuota[4]
 
-                        # Cálculo del equivalente en Bolívares al vuelo
                         monto_bs = c_monto * tasa_euro
 
                         pagada = c_id in cuotas_pagadas_ids
@@ -1075,8 +1163,9 @@ class SmartFaceDashboard(ft.UserControl):
         
         for log in logs:
             nombre = f"{log.get('nombre', '')} {log.get('apellido', '')}".strip()
-            if not nombre:
-                nombre = "Desconocido"
+            # Omitir el registro si el estudiante fue eliminado (no tiene nombre o aparece como desconocido)
+            if not nombre or nombre == "Desconocido" or not log.get('cedula'):
+                continue
                 
             reconocido = bool(log.get('reconocido', False))
             estado = "Reconocido" if reconocido else "No reconocido"
