@@ -62,6 +62,9 @@ class UniversityApp(ft.UserControl):
         self.engine = None
         self.monitor_bcv = MonitorBCV()
         
+        # Pre-cargar el motor de IA en segundo plano al abrir la app
+        threading.Thread(target=self._pre_cargar_motor, daemon=True).start()
+        
         # Píxel transparente en Base64 para evitar errores de inicialización
         self.transparent_pixel = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
@@ -380,6 +383,16 @@ class UniversityApp(ft.UserControl):
                 )
             ]
         )
+    
+    def _pre_cargar_motor(self):
+        """Inicializa el motor YOLO e InsightFace de forma silenciosa al arrancar la app"""
+        if self.engine is None:
+            try:
+                print("⏳ Pre-cargando motor de IA en segundo plano...")
+                self.engine = SmartFaceEngine()
+                print("✅ Motor de IA pre-cargado y listo para usar.")
+            except Exception as e:
+                print(f"Error al pre-cargar el motor de IA: {e}")
 
     # --------------------------------------------
     # LÓGICA DE INTEGRACIÓN CON OPENCV
@@ -402,10 +415,18 @@ class UniversityApp(ft.UserControl):
         threading.Thread(target=self._camera_loop, daemon=True).start()
 
     def _camera_loop(self):
-        if self.engine is None:
-            self.engine = SmartFaceEngine()
+        # Si el motor aún se está cargando en segundo plano, esperamos de forma fluida
+        while self.engine is None and self.scanning:
+            time.sleep(0.1)
             
-        cap = cv2.VideoCapture(0)
+        if not self.scanning:
+            return
+            
+        # 🚀 Optimización 1: Usar DirectShow (en Windows) y fijar resolución ligera para apertura inmediata
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        
         self.video_image.visible = True
         self.camera_content.controls = [self.video_image]
         try:
@@ -413,13 +434,27 @@ class UniversityApp(ft.UserControl):
         except Exception:
             pass
 
+        frame_count = 0
+        frame_procesado = None
+
         while self.scanning and cap.isOpened():
             ret, frame = cap.read()
             if not ret: break
 
-            frame_procesado = self.engine.procesar_frame(frame)
+            frame_count += 1
 
-            _, buffer = cv2.imencode('.jpg', frame_procesado)
+            # 🚀 Optimización 2: Frame Skipping. 
+            # La IA procesa fotogramas alternos (ej. uno sí, uno no) para garantizar máxima fluidez visual.
+            if frame_count % 2 == 0:
+                frame_procesado = self.engine.procesar_frame(frame)
+            elif frame_procesado is not None:
+                # Mantenemos el frame procesado anterior temporalmente para evitar parpadeos
+                pass
+            else:
+                frame_procesado = frame
+
+            # Codificar y enviar a la interfaz gráfica de Flet con alta velocidad
+            _, buffer = cv2.imencode('.jpg', frame_procesado, [cv2.IMWRITE_JPEG_QUALITY, 80])
             img_base64 = base64.b64encode(buffer).decode('utf-8')
             
             self.video_image.src_base64 = img_base64
@@ -435,7 +470,7 @@ class UniversityApp(ft.UserControl):
                 self._show_result(estudiante)
                 break
             
-            time.sleep(0.03)
+            time.sleep(0.01) # Reducido ligeramente para dar mayor fluidez al hilo gráfico
 
         cap.release()
 
@@ -609,6 +644,16 @@ def main(page: ft.Page):
     page.window_height = 800
     
     app = UniversityApp()
+    
+    page.window_prevent_close = True
+    def window_event(e):
+        if e.data == "close":
+            if app.engine:
+                app.engine.cerrar()
+            page.window_destroy()
+            
+    page.on_window_event = window_event
+    
     page.add(app)
     page.update()
 
