@@ -60,11 +60,12 @@ class UniversityApp(ft.UserControl):
         self.active_tab = "Escaner"
         self.scanning = False
         self.engine = None
+        self.cap = None
         self.monitor_bcv = MonitorBCV()
         
         # Pre-cargar el motor de IA en segundo plano al abrir la app
         threading.Thread(target=self._pre_cargar_motor, daemon=True).start()
-        
+        threading.Thread(target=self._pre_cargar_camara, daemon=True).start()
         # Píxel transparente en Base64 para evitar errores de inicialización
         self.transparent_pixel = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
@@ -213,7 +214,7 @@ class UniversityApp(ft.UserControl):
                         ft.Text("Deuda pendiente:", size=11, weight=ft.FontWeight.BOLD, color="#C0392B"),
                         ft.Text(f"• {cuota}", size=12, color=TEXT_COLOR),
                         ft.Text(f"• 🇪🇺 €{precio_euro:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
-                        ft.Text(f"• 🇻🇪 Bs. {precio_bs:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
+                        ft.Text(f"• 🇻🇪 Bs. {precio_bs:,.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
                     ], spacing=2)
                 )
             )
@@ -336,8 +337,6 @@ class UniversityApp(ft.UserControl):
             spacing=20,
             controls=[
                 self.video_image,
-                ft.Icon(ft.icons.VIDEOCAM_OUTLINED, size=80, color=ACCENT_MID),
-                ft.Text("Cámara (Inactiva)", size=18, weight=ft.FontWeight.W_500, color=TEXT_COLOR),
                 
                 ft.Container(
                     margin=ft.margin.only(top=20),
@@ -405,55 +404,57 @@ class UniversityApp(ft.UserControl):
             self.engine.reiniciar_sesion()
             self.engine.recargar_datos()
         
+        self.video_image.visible = True
         self.camera_content.controls = [
             self.video_image,
             ft.ProgressRing(color=ACCENT_BLUE, width=40, height=40),
-            ft.Text("Iniciando motor YOLO y cámara...", size=16, weight=ft.FontWeight.W_500, color=TEXT_COLOR)
+            ft.Text("Buscando rostros...", size=16, weight=ft.FontWeight.W_500, color=TEXT_COLOR)
         ]
         self.update()
 
         threading.Thread(target=self._camera_loop, daemon=True).start()
+        pass
+    
+    def _pre_cargar_camara(self):
+        """Abre y calienta la cámara en segundo plano para que esté lista de inmediato al presionar escanear"""
+        try:
+            print("⏳ Inicializando cámara en segundo plano...")
+            self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            # Leemos un frame rápido para asegurar que el controlador despierte por completo
+            self.cap.read()
+            print("✅ Cámara lista y en espera.")
+        except Exception as e:
+            print(f"Error al pre-cargar la cámara: {e}")
 
     def _camera_loop(self):
-        # Si el motor aún se está cargando en segundo plano, esperamos de forma fluida
-        while self.engine is None and self.scanning:
-            time.sleep(0.1)
-            
+        # Esperar a que la cámara y el motor estén listos
+        while self.cap is None or not self.scanning:
+            time.sleep(0.05)
+        
         if not self.scanning:
             return
-            
-        # 🚀 Optimización 1: Usar DirectShow (en Windows) y fijar resolución ligera para apertura inmediata
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        
-        self.video_image.visible = True
-        self.camera_content.controls = [self.video_image]
-        try:
-            self.update()
-        except Exception:
-            pass
 
         frame_count = 0
         frame_procesado = None
 
-        while self.scanning and cap.isOpened():
-            ret, frame = cap.read()
-            if not ret: break
+        while self.scanning and self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if not ret: 
+                break
 
             frame_count += 1
-
-            # 🚀 Optimización 2: Frame Skipping. 
-            # La IA procesa fotogramas alternos (ej. uno sí, uno no) para garantizar máxima fluidez visual.
-            if frame_count % 2 == 0:
+            
+            # Frame skipping para optimizar rendimiento de la IA
+            if frame_count % 2 == 0 and self.engine:
                 frame_procesado = self.engine.procesar_frame(frame)
             elif frame_procesado is not None:
-                # Mantenemos el frame procesado anterior temporalmente para evitar parpadeos
                 pass
             else:
                 frame_procesado = frame
 
-            # Codificar y enviar a la interfaz gráfica de Flet con alta velocidad
+            # Codificar y enviar a la interfaz gráfica de Flet
             _, buffer = cv2.imencode('.jpg', frame_procesado, [cv2.IMWRITE_JPEG_QUALITY, 80])
             img_base64 = base64.b64encode(buffer).decode('utf-8')
             
@@ -463,16 +464,14 @@ class UniversityApp(ft.UserControl):
             except Exception:
                 break
 
-            estudiante = self.engine.obtener_ultimo_estudiante()
+            if self.engine:
+                estudiante = self.engine.obtener_ultimo_estudiante()
+                if estudiante and estudiante.get("id") is not None:
+                    self.scanning = False
+                    self._show_result(estudiante)
+                    break
             
-            if estudiante and estudiante.get("id") is not None:
-                self.scanning = False
-                self._show_result(estudiante)
-                break
-            
-            time.sleep(0.01) # Reducido ligeramente para dar mayor fluidez al hilo gráfico
-
-        cap.release()
+            time.sleep(0.01)
 
     def _show_result(self, estudiante):
         self.video_image.visible = False
@@ -628,6 +627,8 @@ class UniversityApp(ft.UserControl):
     def did_unmount(self):
         if self.engine:
             self.engine.cerrar()
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
         super().did_unmount()
 
 # ============================================

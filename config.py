@@ -23,4 +23,4 @@ TEMA_COLOR_SECUNDARIO = "#00A8FF"
 
 # Crear directorios necesarios
 os.makedirs(BASE_DIR / "base_de_datos", exist_ok=True)
-os.makedirs(BASE_DIR / "static" / "imagenes", exist_ok=True)
+os.makedirs(BASE_DIR / "fotos_registros", exist_ok=True)

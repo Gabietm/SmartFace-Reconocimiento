@@ -66,7 +66,30 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_nombre = self._neu_text_field("Nombres", ft.icons.PERSON_OUTLINE)
         self.txt_apellido = self._neu_text_field("Apellidos", ft.icons.PERSON_OUTLINE)
         self.txt_email = self._neu_text_field("Correo Electrónico", ft.icons.EMAIL_OUTLINED)
-        self.txt_carrera = self._neu_text_field("Carrera", ft.icons.SCHOOL_OUTLINED)
+        
+        # Menú desplegable para Carrera / Especialidad
+        carreras_disponibles = [
+            "Ingeniería en Sistemas",
+            "Ingeniería Civil",
+            "Ingeniería Industrial",
+            "Ingeniería Electrónica",
+            "Ingeniería Electrica",
+            "Ingeniería de Mantenimiento Mecanico",
+            "Arquitectura",
+        ]
+        self.dd_carrera = ft.Dropdown(
+            label="Carrera",
+            prefix_icon=ft.icons.SCHOOL_OUTLINED,
+            border=ft.InputBorder.NONE,
+            filled=True,
+            bgcolor=BG_COLOR,
+            color=TEXT_COLOR,
+            label_style=ft.TextStyle(color=TEXT_COLOR),
+            border_radius=15,
+            focused_border_color=ACCENT_BLUE,
+            options=[ft.dropdown.Option(c) for c in carreras_disponibles]
+        )
+        
         self.txt_semestre = self._neu_text_field("Semestre", ft.icons.FORMAT_LIST_BULLETED)
         
         # Barra de búsqueda por cédula para la lista de estudiantes
@@ -279,7 +302,7 @@ class SmartFaceDashboard(ft.UserControl):
                                     self.txt_nombre,
                                     self.txt_apellido,
                                     self.txt_email,
-                                    self.txt_carrera,
+                                    self.dd_carrera,
                                     self.txt_semestre,
                                     ft.Divider(color="#D0D5DD"),
                                     ft.Column(
@@ -749,14 +772,29 @@ class SmartFaceDashboard(ft.UserControl):
         resultado_finanzas = ft.Column(expand=True, spacing=15, scroll=ft.ScrollMode.AUTO)
 
         def abrir_dialogo_pago(est_id, cuota_id, monto_cuota):
-            txt_metodo = ft.TextField(label="Método de Pago (Transferencia, Pago Móvil)", value="Transferencia", border_radius=10, bgcolor=BG_COLOR)
-            txt_referencia = ft.TextField(label="Referencia / Comprobante (Opcional)", border_radius=10, bgcolor=BG_COLOR)
+            metodos_disponibles = [
+                "Transferencia",
+                "Pago Móvil",
+                "Tarjeta de Débito"
+            ]
+            dd_metodo = ft.Dropdown(
+                label="Método de Pago",
+                value="Transferencia",
+                border_radius=10,
+                bgcolor=BG_COLOR,
+                color=TEXT_COLOR,
+                label_style=ft.TextStyle(color=TEXT_COLOR),
+                focused_border_color=ACCENT_BLUE,
+                options=[ft.dropdown.Option(m) for m in metodos_disponibles]
+            )
+            
+            txt_referencia = ft.TextField(label="Referencia / Comprobante", border_radius=10, bgcolor=BG_COLOR)
             lbl_mensaje_modal = ft.Text("", size=12)
 
             def guardar_pago(e):
                 try:
                     monto = float(monto_cuota)
-                    metodo = txt_metodo.value
+                    metodo = dd_metodo.value
                     referencia = txt_referencia.value
 
                     with self.db._get_connection() as conn:
@@ -773,14 +811,16 @@ class SmartFaceDashboard(ft.UserControl):
                     lbl_mensaje_modal.value = f"Error: {str(ex)}"
                     lbl_mensaje_modal.color = "#FF1744"
                     lbl_mensaje_modal.update()
-
+                    
+            tasa_euro = self.monitor_bcv.obtener_precio_euro()
+             
             dlg = ft.AlertDialog(
                 title=ft.Text("Registrar Pago de Cuota", weight=ft.FontWeight.BOLD),
                 content=ft.Column(
                     tight=True, spacing=10,
                     controls=[
-                        ft.Text(f"Monto a pagar: ${float(monto_cuota):.2f}", size=14, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE),
-                        txt_metodo, txt_referencia, lbl_mensaje_modal
+                        ft.Text(f"Monto a pagar: €{float(monto_cuota):.2f} (Bs{float(monto_cuota) * tasa_euro:,.2f})\n", size=14, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE),
+                        dd_metodo, txt_referencia, lbl_mensaje_modal
                     ]
                 ),
                 actions=[
