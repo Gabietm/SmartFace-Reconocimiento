@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 from bd import UniversityDatabase  # Módulo de base de datos correcto
+from config import FOTOS_DIR  # Importar la ruta de fotos desde config.py
 
 # Variable global para el modelo (inicialmente vacía)
 _face_app = None
@@ -21,8 +22,8 @@ def get_face_app():
     return _face_app
 
 def procesar_y_guardar_usuario(cedula: str, nombre: str, apellido: str, email: str, carrera: str, semestre: int = 1):
-    ruta_foto = f"fotos_registros/{cedula}.jpg"
-    
+    ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
+
     if not os.path.exists(ruta_foto):
         return False, f"Error: No se encuentra la foto en {ruta_foto}."
 

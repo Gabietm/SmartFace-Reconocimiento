@@ -13,6 +13,7 @@ import numpy as np
 import flet as ft
 from bd import UniversityDatabase  # Importación de tu base de datos en bd.py
 from tasa_bcv import MonitorBCV
+from config import FOTOS_DIR
 
 try:
     from _registrar_usuario import procesar_y_guardar_usuario
@@ -584,7 +585,7 @@ class SmartFaceDashboard(ft.UserControl):
                 conn.execute("DELETE FROM estudiantes WHERE cedula = ?", (cedula,))
                 conn.commit()
             
-            ruta_foto = f"fotos_registros/{cedula}.jpg"
+            ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
             if os.path.exists(ruta_foto):
                 os.remove(ruta_foto)
 
@@ -649,8 +650,8 @@ class SmartFaceDashboard(ft.UserControl):
             return
 
         self.scanning = False
-        os.makedirs("fotos_registros", exist_ok=True)
-        ruta_foto = f"fotos_registros/{cedula}.jpg"
+        os.makedirs(FOTOS_DIR, exist_ok=True)
+        ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
         cv2.imwrite(ruta_foto, self.current_frame)
 
         try:
@@ -706,7 +707,7 @@ class SmartFaceDashboard(ft.UserControl):
             semestre = 1
 
         if self.current_frame is not None and procesar_y_guardar_usuario:
-            ruta_foto = f"fotos_registros/{cedula}.jpg"
+            ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
             cv2.imwrite(ruta_foto, self.current_frame)
             procesar_y_guardar_usuario(
                 cedula=cedula, nombre=nombre, apellido=apellido,

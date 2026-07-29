@@ -10,7 +10,7 @@ import cv2
 import base64
 from smartface_engine import SmartFaceEngine
 from bd import UniversityDatabase
-from config import DB_PATH
+from config import DB_PATH, FOTOS_DIR
 import datetime
 from tasa_bcv import MonitorBCV
 
@@ -149,7 +149,7 @@ class UniversityApp(ft.UserControl):
             ruta_encontrada = None
             
             for ext in extensiones:
-                candidato = os.path.join("fotos_registros", f"{cedula}{ext}")
+                candidato = os.path.join(FOTOS_DIR, f"{cedula}{ext}")
                 posibles = [candidato, os.path.join(os.getcwd(), candidato), os.path.abspath(candidato)]
                 
                 for p in posibles:
