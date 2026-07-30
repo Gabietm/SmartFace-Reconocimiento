@@ -1,5 +1,5 @@
 """
-app.py - Aplicación para Flet 0.21.2 con Integración OpenCV + YOLO
+app.py - Aplicación para Flet (0.21.2+) con Integración OpenCV + YOLO
 Diseño Neumórfico con Paleta Adobe Color & Gradiente Moderno
 """
 
@@ -8,21 +8,23 @@ import time
 import threading
 import cv2
 import base64
+import os
+import datetime
+
 from smartface_engine import SmartFaceEngine
 from bd import UniversityDatabase
-from config import DB_PATH, FOTOS_DIR
-import datetime
+from config import DB_PATH
 from tasa_bcv import MonitorBCV
 
 # ============================================
 # PALETA DE COLORES ADOBE COLOR
 # ============================================
 
-BG_COLOR = "#F2F2F2"       # Tono base extraído de la paleta
-TEXT_COLOR = "#2C3E50"     # Gris oscuro sofisticado para texto
+BG_COLOR = "#F2F2F2"       # Tono base neumórfico
+TEXT_COLOR = "#2C3E50"     # Gris oscuro
 ACCENT_BLUE = "#353FF2"    # Azul vibrante principal
 ACCENT_MID = "#3084F2"     # Azul intermedio
-ACCENT_LIGHT = "#2E97F2"   # Azul claro / cyan
+ACCENT_LIGHT = "#2E97F2"   # Azul claro
 
 # Gradiente moderno extraído de la paleta
 GRADIENT_MODERNO = ft.LinearGradient(
@@ -48,25 +50,48 @@ def neu_container(content=None, padding=20, border_radius=20, expand=False, widt
         animate=ft.animation.Animation(300, ft.AnimationCurve.EASE_OUT)
     )
 
+def crear_boton_gradiente(texto, icon=None, on_click=None, height=45, width=None, expand=False):
+    """Generador modular de botones con gradiente uniforme"""
+    controls_row = []
+    if icon:
+        controls_row.append(ft.Icon(icon, color="white", size=18))
+    controls_row.append(ft.Text(texto, size=14, weight=ft.FontWeight.BOLD, color="white"))
+
+    return ft.Container(
+        alignment=ft.alignment.center,
+        content=ft.Row(controls_row, alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+        gradient=GRADIENT_MODERNO,
+        padding=ft.padding.symmetric(horizontal=25, vertical=10),
+        border_radius=20,
+        height=height,
+        width=width,
+        expand=expand,
+        shadow=[ft.BoxShadow(spread_radius=1, blur_radius=8, color="#353FF2", offset=ft.Offset(0, 4))],
+        on_click=on_click,
+        animate=ft.animation.Animation(200, ft.AnimationCurve.EASE_IN_OUT)
+    )
+
 # ============================================
-# CLASE PRINCIPAL
+# CLASE PRINCIPAL (Migrada a ft.Container)
 # ============================================
 
-class UniversityApp(ft.UserControl):
+class UniversityApp(ft.Container):
     
     def __init__(self):
         super().__init__()
-        self.expand = True 
+        self.bgcolor = BG_COLOR
+        self.expand = True
+        self.padding = ft.padding.all(30)
+        
         self.active_tab = "Escaner"
         self.scanning = False
         self.engine = None
-        self.cap = None
         self.monitor_bcv = MonitorBCV()
         
         # Pre-cargar el motor de IA en segundo plano al abrir la app
         threading.Thread(target=self._pre_cargar_motor, daemon=True).start()
-        threading.Thread(target=self._pre_cargar_camara, daemon=True).start()
-        # Píxel transparente en Base64 para evitar errores de inicialización
+        
+        # Píxel transparente en Base64
         self.transparent_pixel = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
         )
@@ -95,19 +120,14 @@ class UniversityApp(ft.UserControl):
             ]
         )
         
-    def build(self):
-        return ft.Container(
-            bgcolor=BG_COLOR,
+        # Armar layout principal en la inicialización
+        self.content = ft.Row(
             expand=True,
-            padding=ft.padding.all(30),
-            content=ft.Row(
-                expand=True,
-                spacing=30,
-                controls=[
-                    self._build_sidebar(),
-                    self._build_main_area()
-                ]
-            )
+            spacing=30,
+            controls=[
+                self._build_sidebar(),
+                self._build_main_area()
+            ]
         )
 
     # --------------------------------------------
@@ -126,14 +146,12 @@ class UniversityApp(ft.UserControl):
         color_estado = ACCENT_BLUE if es_activo else "#FF1744"
         texto_estado = "Solvente" if es_activo else "Moroso / Inactivo"
         
-        # 1. Obtener nombres y apellidos correctamente combinados
         nombres = estudiante.get('nombre') or estudiante.get('nombres', '')
         apellidos = estudiante.get('apellido') or estudiante.get('apellidos', '')
         nombre_completo = f"{nombres} {apellidos}".strip()
         if not nombre_completo:
             nombre_completo = estudiante.get('nombre', 'Desconocido')
 
-        # 2. Buscar la foto utilizando estrictamente la Cédula en la carpeta "fotos_registros"
         cedula = str(estudiante.get('cedula', '')).strip()
         image_control = ft.Image(
             src_base64=self.transparent_pixel,
@@ -144,12 +162,11 @@ class UniversityApp(ft.UserControl):
         )
         
         if cedula:
-            import os
             extensiones = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
             ruta_encontrada = None
             
             for ext in extensiones:
-                candidato = os.path.join(FOTOS_DIR, f"{cedula}{ext}")
+                candidato = os.path.join("fotos_registros", f"{cedula}{ext}")
                 posibles = [candidato, os.path.join(os.getcwd(), candidato), os.path.abspath(candidato)]
                 
                 for p in posibles:
@@ -213,8 +230,8 @@ class UniversityApp(ft.UserControl):
                     content=ft.Column([
                         ft.Text("Deuda pendiente:", size=11, weight=ft.FontWeight.BOLD, color="#C0392B"),
                         ft.Text(f"• {cuota}", size=12, color=TEXT_COLOR),
-                        ft.Text(f"• 🇪🇺 €{precio_euro:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
-                        ft.Text(f"• 🇻🇪 Bs. {precio_bs:,.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
+                        ft.Text(f"• €{precio_euro:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
+                        ft.Text(f"• Bs. {precio_bs:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
                     ], spacing=2)
                 )
             )
@@ -261,7 +278,6 @@ class UniversityApp(ft.UserControl):
                 fecha_hoy = datetime.date.today().strftime('%Y-%m-%d')
                 periodo_activo_id = None
                 
-                # Obtener periodo activo
                 with db._get_connection() as conn:
                     p_cursor = conn.execute("SELECT id FROM periodos WHERE activo = 1 LIMIT 1")
                     p_row = p_cursor.fetchone()
@@ -275,7 +291,6 @@ class UniversityApp(ft.UserControl):
                     
                     if periodo_activo_id:
                         with db._get_connection() as conn:
-                            # Buscar cuotas vencidas
                             c_cursor = conn.execute(
                                 "SELECT id FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
                                 (periodo_activo_id, fecha_hoy)
@@ -286,10 +301,8 @@ class UniversityApp(ft.UserControl):
                                 ids_cuotas_vencidas = [row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas]
                                 placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
                                 
-                                # Verificar si el estudiante pagó esas cuotas
                                 p_cursor = conn.execute(
-                                    f"""SELECT DISTINCT cuota_id FROM pagos 
-                                       WHERE estudiante_id = ? AND cuota_id IN ({placeholders})""",
+                                    f"SELECT DISTINCT cuota_id FROM pagos WHERE estudiante_id = ? AND cuota_id IN ({placeholders})",
                                     [est_id] + ids_cuotas_vencidas
                                 )
                                 pagos_vencidos = p_cursor.fetchall()
@@ -331,22 +344,17 @@ class UniversityApp(ft.UserControl):
         )
     
     def _build_camera_section(self):
+        btn_escanear = crear_boton_gradiente("Escanear", on_click=self._start_scan)
+
         self.camera_content = ft.Column(
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=20,
             controls=[
                 self.video_image,
-                
-                ft.Container(
-                    margin=ft.margin.only(top=20),
-                    content=ft.Text("Escanear", size=16, weight=ft.FontWeight.BOLD, color="white"),
-                    gradient=GRADIENT_MODERNO,
-                    padding=ft.padding.symmetric(horizontal=50, vertical=15),
-                    border_radius=30,
-                    shadow=[ft.BoxShadow(spread_radius=1, blur_radius=12, color="#353FF2", offset=ft.Offset(0, 5))],
-                    on_click=self._start_scan
-                )
+                ft.Icon(ft.icons.VIDEOCAM_OUTLINED, size=80, color=ACCENT_MID),
+                ft.Text("Cámara (Inactiva)", size=18, weight=ft.FontWeight.W_500, color=TEXT_COLOR),
+                btn_escanear
             ]
         )
 
@@ -404,57 +412,49 @@ class UniversityApp(ft.UserControl):
             self.engine.reiniciar_sesion()
             self.engine.recargar_datos()
         
-        self.video_image.visible = True
         self.camera_content.controls = [
             self.video_image,
             ft.ProgressRing(color=ACCENT_BLUE, width=40, height=40),
-            ft.Text("Buscando rostros...", size=16, weight=ft.FontWeight.W_500, color=TEXT_COLOR)
+            ft.Text("Iniciando motor YOLO y cámara...", size=16, weight=ft.FontWeight.W_500, color=TEXT_COLOR)
         ]
         self.update()
 
         threading.Thread(target=self._camera_loop, daemon=True).start()
-        pass
-    
-    def _pre_cargar_camara(self):
-        """Abre y calienta la cámara en segundo plano para que esté lista de inmediato al presionar escanear"""
-        try:
-            print("⏳ Inicializando cámara en segundo plano...")
-            self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            # Leemos un frame rápido para asegurar que el controlador despierte por completo
-            self.cap.read()
-            print("✅ Cámara lista y en espera.")
-        except Exception as e:
-            print(f"Error al pre-cargar la cámara: {e}")
 
     def _camera_loop(self):
-        # Esperar a que la cámara y el motor estén listos
-        while self.cap is None or not self.scanning:
-            time.sleep(0.05)
-        
+        while self.engine is None and self.scanning:
+            time.sleep(0.1)
+            
         if not self.scanning:
             return
+            
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        
+        self.video_image.visible = True
+        self.camera_content.controls = [self.video_image]
+        try:
+            self.update()
+        except Exception:
+            pass
 
         frame_count = 0
         frame_procesado = None
 
-        while self.scanning and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret: 
-                break
+        while self.scanning and cap.isOpened():
+            ret, frame = cap.read()
+            if not ret: break
 
             frame_count += 1
-            
-            # Frame skipping para optimizar rendimiento de la IA
-            if frame_count % 2 == 0 and self.engine:
+
+            if frame_count % 2 == 0:
                 frame_procesado = self.engine.procesar_frame(frame)
             elif frame_procesado is not None:
                 pass
             else:
                 frame_procesado = frame
 
-            # Codificar y enviar a la interfaz gráfica de Flet
             _, buffer = cv2.imencode('.jpg', frame_procesado, [cv2.IMWRITE_JPEG_QUALITY, 80])
             img_base64 = base64.b64encode(buffer).decode('utf-8')
             
@@ -464,14 +464,16 @@ class UniversityApp(ft.UserControl):
             except Exception:
                 break
 
-            if self.engine:
-                estudiante = self.engine.obtener_ultimo_estudiante()
-                if estudiante and estudiante.get("id") is not None:
-                    self.scanning = False
-                    self._show_result(estudiante)
-                    break
+            estudiante = self.engine.obtener_ultimo_estudiante()
+            
+            if estudiante and estudiante.get("id") is not None:
+                self.scanning = False
+                self._show_result(estudiante)
+                break
             
             time.sleep(0.01)
+
+        cap.release()
 
     def _show_result(self, estudiante):
         self.video_image.visible = False
@@ -494,7 +496,6 @@ class UniversityApp(ft.UserControl):
                 estudiante_completo.update(reg_encontrado)
                 est_id_real = reg_encontrado.get('id')
                 
-                # CÁLCULO DINÁMICO DE SOLVENCIA PARA EL ESTUDIANTE RECONOCIDO
                 fecha_hoy = datetime.date.today().strftime('%Y-%m-%d')
                 periodo_activo_id = None
                 
@@ -506,11 +507,9 @@ class UniversityApp(ft.UserControl):
 
                 es_solvente = True
                 if periodo_activo_id and est_id_real:
-                    # Obtener la tasa del día automáticamente mediante el script MonitorBCV
                     tasa_euro = self.monitor_bcv.obtener_precio_euro()
                     
                     with db._get_connection() as conn:
-                        # Usamos SELECT * para evitar errores de columnas faltantes y adaptarnos al esquema de bd
                         c_cursor = conn.execute(
                             "SELECT * FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
                             (periodo_activo_id, fecha_hoy)
@@ -522,8 +521,7 @@ class UniversityApp(ft.UserControl):
                             placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
                             
                             p_cursor = conn.execute(
-                                f"""SELECT DISTINCT cuota_id FROM pagos 
-                                   WHERE estudiante_id = ? AND cuota_id IN ({placeholders})""",
+                                f"SELECT DISTINCT cuota_id FROM pagos WHERE estudiante_id = ? AND cuota_id IN ({placeholders})",
                                 [est_id_real] + ids_cuotas_vencidas
                             )
                             pagos_vencidos = p_cursor.fetchall()
@@ -533,8 +531,6 @@ class UniversityApp(ft.UserControl):
                                 c_id = c['id'] if hasattr(c, 'keys') else c[0]
                                 if c_id not in ids_pagados:
                                     es_solvente = False
-                                    
-                                    # Mapeo seguro de columnas por si varían en la base de datos
                                     keys = c.keys() if hasattr(c, 'keys') else []
                                     
                                     c_nombre = 'Cuota Pendiente'
@@ -549,7 +545,6 @@ class UniversityApp(ft.UserControl):
                                             c_euro = c[k]
                                             break
                                             
-                                    # Cálculo exacto de la equivalencia en bolívares multiplicando los euros de la BD por la tasa BCV
                                     c_bs = c_euro * tasa_euro if tasa_euro > 0 else 0.0
                                     
                                     estudiante_completo['cuota_pendiente'] = c_nombre
@@ -562,31 +557,22 @@ class UniversityApp(ft.UserControl):
         except Exception as e:
             print(f"Error al consultar la BD para el perfil lateral: {e}")
 
-        # Actualizar la barra lateral con los datos dinámicos calculados
         self._update_sidebar_student(estudiante_completo)
         
         es_activo = estudiante_completo.get('es_activo', False)
         color_estado = ACCENT_BLUE if es_activo else "#FF1744"
         texto_estado = "Activo/Solvente" if es_activo else "Moroso/Inactivo"
 
+        btn_volver_escanear = crear_boton_gradiente("Volver a escanear", on_click=self._reset_scanner)
+
         self.camera_content.controls = [
             ft.Icon(ft.icons.CHECK_CIRCLE, size=60, color=color_estado),
             ft.Text(f"¡Identificado: {estudiante_completo.get('nombre', 'Desconocido')}!", size=22, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
             ft.Text(f"Similitud: {estudiante_completo.get('similitud', 0)*100:.1f}%", size=14, color=TEXT_COLOR),
             ft.Text(f"Estado: {texto_estado}", size=16, weight=ft.FontWeight.BOLD, color=color_estado),
-            
-            ft.Container(
-                margin=ft.margin.only(top=15),
-                content=ft.Text("Volver a escanear", size=14, weight=ft.FontWeight.BOLD, color="white"),
-                gradient=GRADIENT_MODERNO,
-                padding=ft.padding.symmetric(horizontal=30, vertical=10),
-                border_radius=20,
-                shadow=[ft.BoxShadow(spread_radius=1, blur_radius=8, color="#353FF2", offset=ft.Offset(0, 3))],
-                on_click=self._reset_scanner
-            )
+            btn_volver_escanear
         ]
         
-        # Refrescar estadísticas del panel inferior
         new_stats = self._build_stats_section()
         self.stats_section.controls = new_stats.controls
         self.update()
@@ -605,31 +591,18 @@ class UniversityApp(ft.UserControl):
         ]
             
         self.video_image.visible = False
+        btn_escanear = crear_boton_gradiente("Escanear", on_click=self._start_scan)
+
         self.camera_content.controls = [
             self.video_image,
             ft.Icon(ft.icons.VIDEOCAM_OUTLINED, size=80, color=ACCENT_MID),
             ft.Text("Cámara (Inactiva)", size=18, weight=ft.FontWeight.W_500, color=TEXT_COLOR),
-            ft.Container(
-                margin=ft.margin.only(top=20),
-                content=ft.Text("Escanear", size=16, weight=ft.FontWeight.BOLD, color="white"),
-                gradient=GRADIENT_MODERNO,
-                padding=ft.padding.symmetric(horizontal=50, vertical=15),
-                border_radius=30,
-                shadow=[ft.BoxShadow(spread_radius=1, blur_radius=12, color="#353FF2", offset=ft.Offset(0, 5))],
-                on_click=self._start_scan
-            )
+            btn_escanear
         ]
         
         new_stats = self._build_stats_section()
         self.stats_section.controls = new_stats.controls
         self.update()
-        
-    def did_unmount(self):
-        if self.engine:
-            self.engine.cerrar()
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
-        super().did_unmount()
 
 # ============================================
 # MAIN
@@ -640,7 +613,6 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 0
     page.bgcolor = BG_COLOR
-    
     page.window_width = 1200
     page.window_height = 800
     
@@ -649,12 +621,12 @@ def main(page: ft.Page):
     page.window_prevent_close = True
     def window_event(e):
         if e.data == "close":
+            app.scanning = False
             if app.engine:
                 app.engine.cerrar()
             page.window_destroy()
             
     page.on_window_event = window_event
-    
     page.add(app)
     page.update()
 

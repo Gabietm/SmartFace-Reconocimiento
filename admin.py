@@ -11,9 +11,8 @@ import json
 import datetime
 import numpy as np
 import flet as ft
-from bd import UniversityDatabase  # Importación de tu base de datos en bd.py
+from bd import UniversityDatabase  # Importación de la base de datos
 from tasa_bcv import MonitorBCV
-from config import FOTOS_DIR
 
 try:
     from _registrar_usuario import procesar_y_guardar_usuario
@@ -25,6 +24,7 @@ TEXT_COLOR = "#2C3E50"
 ACCENT_BLUE = "#353FF2"
 ACCENT_MID = "#3084F2"
 
+# Degradado unificado moderno
 GRADIENT_MODERNO = ft.LinearGradient(
     begin=ft.alignment.top_left,
     end=ft.alignment.bottom_right,
@@ -44,6 +44,27 @@ def neu_container(content=None, padding=20, border_radius=20, expand=False, widt
         width=width, height=height, expand=expand,
         shadow=get_neumorphic_shadows(),
         animate=ft.animation.Animation(300, ft.AnimationCurve.EASE_OUT)
+    )
+
+# --- Componente Auxiliar para Botones con Gradiente ---
+def crear_boton_gradiente(texto, icon=None, on_click=None, height=45, width=None, expand=False):
+    controls_row = []
+    if icon:
+        controls_row.append(ft.Icon(icon, color="white", size=18))
+    controls_row.append(ft.Text(texto, size=14, weight=ft.FontWeight.BOLD, color="white"))
+
+    return ft.Container(
+        alignment=ft.alignment.center,
+        content=ft.Row(controls_row, alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+        gradient=GRADIENT_MODERNO,
+        padding=ft.padding.symmetric(horizontal=18, vertical=10),
+        border_radius=15,
+        height=height,
+        width=width,
+        expand=expand,
+        shadow=[ft.BoxShadow(spread_radius=1, blur_radius=6, color="#353FF2", offset=ft.Offset(0, 3))],
+        on_click=on_click,
+        animate=ft.animation.Animation(200, ft.AnimationCurve.EASE_IN_OUT)
     )
 
 class SmartFaceDashboard(ft.UserControl):
@@ -68,16 +89,7 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_apellido = self._neu_text_field("Apellidos", ft.icons.PERSON_OUTLINE)
         self.txt_email = self._neu_text_field("Correo Electrónico", ft.icons.EMAIL_OUTLINED)
         
-        # Menú desplegable para Carrera / Especialidad
-        carreras_disponibles = [
-            "Ingeniería en Sistemas",
-            "Ingeniería Civil",
-            "Ingeniería Industrial",
-            "Ingeniería Electrónica",
-            "Ingeniería Electrica",
-            "Ingeniería de Mantenimiento Mecanico",
-            "Arquitectura",
-        ]
+        # Dropdown estandarizado de carreras universitarias
         self.dd_carrera = ft.Dropdown(
             label="Carrera",
             prefix_icon=ft.icons.SCHOOL_OUTLINED,
@@ -88,12 +100,21 @@ class SmartFaceDashboard(ft.UserControl):
             label_style=ft.TextStyle(color=TEXT_COLOR),
             border_radius=15,
             focused_border_color=ACCENT_BLUE,
-            options=[ft.dropdown.Option(c) for c in carreras_disponibles]
+            options=[
+                ft.dropdown.Option("Arquitectura"),
+                ft.dropdown.Option("Ing. Industrial"),
+                ft.dropdown.Option("Ing. Mantenimiento Mecánico"),
+                ft.dropdown.Option("Ing. Sistemas"),
+                ft.dropdown.Option("Ing. Civil"),
+                ft.dropdown.Option("Ing. Diseño Industrial"),
+                ft.dropdown.Option("Ing. Producción"),
+                ft.dropdown.Option("Ing. Electrónica"),
+                ft.dropdown.Option("Ing. Eléctrica"),
+            ]
         )
-        
+
         self.txt_semestre = self._neu_text_field("Semestre", ft.icons.FORMAT_LIST_BULLETED)
         
-        # Barra de búsqueda por cédula para la lista de estudiantes
         self.txt_buscar_estudiante = ft.TextField(
             label="Buscar por Cédula",
             prefix_icon=ft.icons.SEARCH,
@@ -140,9 +161,37 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_solventes_count = ft.Text("0", size=16, weight=ft.FontWeight.BOLD, color="#2E7D32")
         self.txt_morosos_count = ft.Text("0", size=16, weight=ft.FontWeight.BOLD, color="#C62828")
 
-        # Contenedor principal dinámico para las vistas del menú
         self.content_area = ft.Container(expand=True, padding=20)
         self.actualizar_vista_contenido()
+
+    def _verificar_solvencia_estudiante(self, est_id, periodo_id, fecha_hoy):
+        if not periodo_id:
+            return True
+        
+        with self.db._get_connection() as conn:
+            c_cursor = conn.execute(
+                "SELECT id FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
+                (periodo_id, fecha_hoy)
+            )
+            cuotas_vencidas = c_cursor.fetchall()
+            
+            if not cuotas_vencidas:
+                return True
+                
+            ids_cuotas_vencidas = [row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas]
+            placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
+            
+            p_cursor = conn.execute(
+                f"SELECT DISTINCT cuota_id FROM pagos WHERE estudiante_id = ? AND cuota_id IN ({placeholders})",
+                [est_id] + ids_cuotas_vencidas
+            )
+            pagos_vencidos = p_cursor.fetchall()
+            ids_pagados = {row['cuota_id'] if hasattr(row, 'keys') else row[0] for row in pagos_vencidos}
+            
+            for c_id in ids_cuotas_vencidas:
+                if c_id not in ids_pagados:
+                    return False
+        return True
 
     def _neu_text_field(self, label, icon, expand=False):
         return ft.TextField(
@@ -188,26 +237,10 @@ class SmartFaceDashboard(ft.UserControl):
             min_extended_width=180,
             bgcolor=BG_COLOR,
             destinations=[
-                ft.NavigationRailDestination(
-                    icon=ft.icons.PEOPLE_OUTLINE,
-                    selected_icon=ft.icons.PEOPLE,
-                    label="Estudiantes",
-                ),
-                ft.NavigationRailDestination(
-                    icon=ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
-                    selected_icon=ft.icons.ACCOUNT_BALANCE_WALLET,
-                    label="Finanzas",
-                ),
-                ft.NavigationRailDestination(
-                    icon=ft.icons.CALENDAR_MONTH_OUTLINED,
-                    selected_icon=ft.icons.CALENDAR_MONTH,
-                    label="Periodos y Cuotas",
-                ),
-                ft.NavigationRailDestination(
-                    icon=ft.icons.ASSIGNMENT_OUTLINED,
-                    selected_icon=ft.icons.ASSIGNMENT,
-                    label="Logs & Accesos",
-                ),
+                ft.NavigationRailDestination(icon=ft.icons.PEOPLE_OUTLINE, selected_icon=ft.icons.PEOPLE, label="Estudiantes"),
+                ft.NavigationRailDestination(icon=ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED, selected_icon=ft.icons.ACCOUNT_BALANCE_WALLET, label="Finanzas"),
+                ft.NavigationRailDestination(icon=ft.icons.CALENDAR_MONTH_OUTLINED, selected_icon=ft.icons.CALENDAR_MONTH, label="Periodos y Cuotas"),
+                ft.NavigationRailDestination(icon=ft.icons.ASSIGNMENT_OUTLINED, selected_icon=ft.icons.ASSIGNMENT, label="Logs & Accesos"),
             ],
             on_change=self.on_nav_change,
         )
@@ -249,8 +282,7 @@ class SmartFaceDashboard(ft.UserControl):
     # ==========================================
     def vista_estudiantes(self):
         bottom_stats_bar = neu_container(
-            height=70,
-            padding=10,
+            height=70, padding=10,
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_AROUND,
                 controls=[
@@ -272,22 +304,21 @@ class SmartFaceDashboard(ft.UserControl):
             )
         )
 
+        # Botón Encender Cámara con gradiente
+        btn_camara = crear_boton_gradiente("Encender Cámara", ft.icons.CAMERA_ALT, on_click=self._toggle_camera)
+
         return ft.Column(
-            expand=True,
-            spacing=15,
+            expand=True, spacing=15,
             controls=[
                 ft.Text("Gestión de Estudiantes y Biometría", size=22, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
                 ft.Divider(color="#D0D5DD"),
                 ft.Row(
-                    expand=True,
-                    spacing=20,
+                    expand=True, spacing=20,
                     controls=[
                         neu_container(
-                            width=400,
-                            padding=20,
+                            width=400, padding=20,
                             content=ft.Column(
-                                scroll=ft.ScrollMode.AUTO,
-                                spacing=12,
+                                scroll=ft.ScrollMode.AUTO, spacing=12,
                                 controls=[
                                     ft.Row(
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -299,26 +330,14 @@ class SmartFaceDashboard(ft.UserControl):
                                             self.btn_cancelar
                                         ]
                                     ),
-                                    self.txt_cedula,
-                                    self.txt_nombre,
-                                    self.txt_apellido,
-                                    self.txt_email,
-                                    self.dd_carrera,
-                                    self.txt_semestre,
+                                    self.txt_cedula, self.txt_nombre, self.txt_apellido,
+                                    self.txt_email, self.dd_carrera, self.txt_semestre,
                                     ft.Divider(color="#D0D5DD"),
                                     ft.Column(
-                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                        spacing=8,
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8,
                                         controls=[
-                                            self.video_image,
-                                            self.status_text,
-                                            ft.ElevatedButton(
-                                                "Encender Cámara",
-                                                icon=ft.icons.CAMERA_ALT,
-                                                color="white",
-                                                bgcolor=ACCENT_BLUE,
-                                                on_click=self._toggle_camera
-                                            )
+                                            self.video_image, self.status_text,
+                                            btn_camara
                                         ]
                                     ),
                                     ft.Container(height=5),
@@ -327,11 +346,9 @@ class SmartFaceDashboard(ft.UserControl):
                             )
                         ),
                         neu_container(
-                            expand=True,
-                            padding=20,
+                            expand=True, padding=20,
                             content=ft.Column(
-                                expand=True,
-                                spacing=15,
+                                expand=True, spacing=15,
                                 controls=[
                                     ft.Row(
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -340,19 +357,12 @@ class SmartFaceDashboard(ft.UserControl):
                                             ft.IconButton(icon=ft.icons.REFRESH, icon_color=TEXT_COLOR, tooltip="Actualizar lista", on_click=lambda e: threading.Thread(target=self.cargar_estudiantes, daemon=True).start())
                                         ]
                                     ),
-                                    # Barra de búsqueda integrada por cédula
                                     ft.Row(
                                         controls=[
                                             self.txt_buscar_estudiante,
-                                            ft.IconButton(
-                                                icon=ft.icons.CLEAR,
-                                                icon_color=TEXT_COLOR,
-                                                tooltip="Limpiar búsqueda",
-                                                on_click=self._limpiar_busqueda_estudiantes
-                                            )
+                                            ft.IconButton(icon=ft.icons.CLEAR, icon_color=TEXT_COLOR, tooltip="Limpiar búsqueda", on_click=self._limpiar_busqueda_estudiantes)
                                         ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                        spacing=10
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=10
                                     ),
                                     self.lista_estudiantes,
                                     bottom_stats_bar
@@ -374,17 +384,11 @@ class SmartFaceDashboard(ft.UserControl):
             return
         try:
             estudiantes_todos = self.db.obtener_todos_estudiantes()
-            
-            # Filtrar por cédula si hay texto escrito en el buscador
             filtro_cedula = self.txt_buscar_estudiante.value.strip().lower() if hasattr(self, 'txt_buscar_estudiante') and self.txt_buscar_estudiante.value else ""
             
-            if filtro_cedula:
-                estudiantes = [est for est in estudiantes_todos if filtro_cedula in str(est.get("cedula", "")).lower()]
-            else:
-                estudiantes = estudiantes_todos
+            estudiantes = [est for est in estudiantes_todos if filtro_cedula in str(est.get("cedula", "")).lower()] if filtro_cedula else estudiantes_todos
 
             self.lista_estudiantes.controls.clear()
-            
             total = len(estudiantes_todos)
             solventes = 0
             morosos = 0
@@ -397,83 +401,26 @@ class SmartFaceDashboard(ft.UserControl):
                 if p_row:
                     periodo_activo_id = p_row['id'] if hasattr(p_row, 'keys') else p_row[0]
 
-            # Calcular solventes y morosos basados en el total general del sistema
             for est in estudiantes_todos:
                 est_id = est['id'] if hasattr(est, 'keys') else est[0]
-                es_solvente = True
-                if periodo_activo_id:
-                    with self.db._get_connection() as conn:
-                        c_cursor = conn.execute(
-                            "SELECT id FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
-                            (periodo_activo_id, fecha_hoy)
-                        )
-                        cuotas_vencidas = c_cursor.fetchall()
-                        
-                        if cuotas_vencidas:
-                            ids_cuotas_vencidas = [row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas]
-                            placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
-                            p_cursor = conn.execute(
-                                f"""SELECT DISTINCT cuota_id FROM pagos 
-                                   WHERE estudiante_id = ? AND cuota_id IN ({placeholders})""",
-                                [est_id] + ids_cuotas_vencidas
-                            )
-                            pagos_vencidos = p_cursor.fetchall()
-                            ids_pagados = {row['cuota_id'] if hasattr(row, 'keys') else row[0] for row in pagos_vencidos}
-                            
-                            for c_id in ids_cuotas_vencidas:
-                                if c_id not in ids_pagados:
-                                    es_solvente = False
-                                    break
-
-                if es_solvente:
+                if self._verificar_solvencia_estudiante(est_id, periodo_activo_id, fecha_hoy):
                     solventes += 1
                 else:
                     morosos += 1
 
-            # Renderizar los estudiantes filtrados en la lista visual
             for est in estudiantes:
                 est_id = est['id'] if hasattr(est, 'keys') else est[0]
                 cedula = est["cedula"]
                 nombre_completo = f"{est['nombre']} {est['apellido']}"
                 carrera = est.get("carrera", "N/D")
 
-                # Comprobar su solvencia individual para la etiqueta visual
-                es_solvente = True
-                if periodo_activo_id:
-                    with self.db._get_connection() as conn:
-                        c_cursor = conn.execute(
-                            "SELECT id FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
-                            (periodo_activo_id, fecha_hoy)
-                        )
-                        cuotas_vencidas = c_cursor.fetchall()
-                        if cuotas_vencidas:
-                            ids_cuotas_vencidas = [row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas]
-                            placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
-                            p_cursor = conn.execute(
-                                f"""SELECT DISTINCT cuota_id FROM pagos 
-                                   WHERE estudiante_id = ? AND cuota_id IN ({placeholders})""",
-                                [est_id] + ids_cuotas_vencidas
-                            )
-                            pagos_vencidos = p_cursor.fetchall()
-                            ids_pagados = {row['cuota_id'] if hasattr(row, 'keys') else row[0] for row in pagos_vencidos}
-                            for c_id in ids_cuotas_vencidas:
-                                if c_id not in ids_pagados:
-                                    es_solvente = False
-                                    break
-
-                if es_solvente:
-                    estado_str = "Solvente"
-                    color_badge = ACCENT_BLUE
-                else:
-                    estado_str = "Moroso"
-                    color_badge = "#FF1744"
+                es_solvente = self._verificar_solvencia_estudiante(est_id, periodo_activo_id, fecha_hoy)
+                estado_str = "Solvente" if es_solvente else "Moroso"
+                color_badge = ACCENT_BLUE if es_solvente else "#FF1744"
 
                 self.lista_estudiantes.controls.append(
                     ft.Container(
-                        padding=10,
-                        border_radius=10,
-                        bgcolor=BG_COLOR,
-                        shadow=get_neumorphic_shadows(),
+                        padding=10, border_radius=10, bgcolor=BG_COLOR, shadow=get_neumorphic_shadows(),
                         content=ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             controls=[
@@ -494,25 +441,11 @@ class SmartFaceDashboard(ft.UserControl):
                                     spacing=5,
                                     controls=[
                                         ft.Container(
-                                            padding=ft.padding.symmetric(horizontal=6, vertical=3),
-                                            border_radius=6,
-                                            bgcolor=color_badge,
+                                            padding=ft.padding.symmetric(horizontal=6, vertical=3), border_radius=6, bgcolor=color_badge,
                                             content=ft.Text(estado_str, size=10, weight=ft.FontWeight.BOLD, color="white")
                                         ),
-                                        ft.IconButton(
-                                            icon=ft.icons.EDIT_OUTLINED,
-                                            icon_color=ACCENT_BLUE,
-                                            icon_size=16,
-                                            tooltip="Editar Estudiante",
-                                            on_click=lambda e, s=est: self._preparar_edicion(s)
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.icons.DELETE_OUTLINE,
-                                            icon_color="#FF1744",
-                                            icon_size=16,
-                                            tooltip="Eliminar Estudiante",
-                                            on_click=lambda e, c=cedula, nom=nombre_completo: self._confirmar_eliminar_estudiante(c, nom)
-                                        )
+                                        ft.IconButton(icon=ft.icons.EDIT_OUTLINED, icon_color=ACCENT_BLUE, icon_size=16, tooltip="Editar Estudiante", on_click=lambda e, s=est: self._preparar_edicion(s)),
+                                        ft.IconButton(icon=ft.icons.DELETE_OUTLINE, icon_color="#FF1744", icon_size=16, tooltip="Eliminar Estudiante", on_click=lambda e, c=cedula, nom=nombre_completo: self._confirmar_eliminar_estudiante(c, nom))
                                     ]
                                 )
                             ]
@@ -523,7 +456,6 @@ class SmartFaceDashboard(ft.UserControl):
             self.txt_total_count.value = str(total)
             self.txt_solventes_count.value = str(solventes)
             self.txt_morosos_count.value = str(morosos)
-            
             self.update()
         except Exception as e:
             print(f"Error cargando estudiantes: {e}")
@@ -535,7 +467,7 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_nombre.value = est.get("nombre", "")
         self.txt_apellido.value = est.get("apellido", "")
         self.txt_email.value = est.get("email", "")
-        self.txt_carrera.value = est.get("carrera", "")
+        self.dd_carrera.value = est.get("carrera", None)
         self.txt_semestre.value = str(est.get("semestre", 1))
         
         self.btn_accion_texto.value = "Actualizar Estudiante"
@@ -550,7 +482,7 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_nombre.value = ""
         self.txt_apellido.value = ""
         self.txt_email.value = ""
-        self.txt_carrera.value = ""
+        self.dd_carrera.value = None
         self.txt_semestre.value = ""
         self.video_image.visible = False
         self.scanning = False
@@ -560,7 +492,6 @@ class SmartFaceDashboard(ft.UserControl):
         self.status_text.value = "Formulario restablecido."
         self.update()
 
-    # Cuadro de diálogo para confirmar eliminación sin accidentes
     def _confirmar_eliminar_estudiante(self, cedula, nombre_completo):
         def ejecutar_eliminacion(e):
             self.page.dialog.open = False
@@ -585,7 +516,7 @@ class SmartFaceDashboard(ft.UserControl):
                 conn.execute("DELETE FROM estudiantes WHERE cedula = ?", (cedula,))
                 conn.commit()
             
-            ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
+            ruta_foto = f"fotos_registros/{cedula}.jpg"
             if os.path.exists(ruta_foto):
                 os.remove(ruta_foto)
 
@@ -636,11 +567,11 @@ class SmartFaceDashboard(ft.UserControl):
         nombre = self.txt_nombre.value
         apellido = self.txt_apellido.value
         email = self.txt_email.value
-        carrera = self.txt_carrera.value
+        carrera = self.dd_carrera.value
         semestre_str = self.txt_semestre.value
 
         if not all([cedula, nombre, apellido, email, carrera]):
-            self.status_text.value = "Error: Complete todos los campos."
+            self.status_text.value = "Error: Complete todos los campos (incluyendo la carrera)."
             self.update()
             return
 
@@ -650,8 +581,8 @@ class SmartFaceDashboard(ft.UserControl):
             return
 
         self.scanning = False
-        os.makedirs(FOTOS_DIR, exist_ok=True)
-        ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
+        os.makedirs("fotos_registros", exist_ok=True)
+        ruta_foto = f"fotos_registros/{cedula}.jpg"
         cv2.imwrite(ruta_foto, self.current_frame)
 
         try:
@@ -671,12 +602,8 @@ class SmartFaceDashboard(ft.UserControl):
     def _guardar_thread_worker(self, cedula, nombre, apellido, email, carrera, semestre):
         try:
             exito, msg = procesar_y_guardar_usuario(
-                cedula=cedula,
-                nombre=nombre,
-                apellido=apellido,
-                email=email,
-                carrera=carrera,
-                semestre=semestre
+                cedula=cedula, nombre=nombre, apellido=apellido,
+                email=email, carrera=carrera, semestre=semestre
             )
         except Exception as e:
             exito, msg = False, f"Excepción interna: {str(e)}"
@@ -685,7 +612,6 @@ class SmartFaceDashboard(ft.UserControl):
         if exito:
             self.cargar_estudiantes()
             self._limpiar_formulario()
-
         self.update()
 
     def _actualizar_estudiante_db(self):
@@ -693,11 +619,11 @@ class SmartFaceDashboard(ft.UserControl):
         nombre = self.txt_nombre.value
         apellido = self.txt_apellido.value
         email = self.txt_email.value
-        carrera = self.txt_carrera.value
+        carrera = self.dd_carrera.value
         semestre_str = self.txt_semestre.value
 
         if not all([nombre, apellido, email, carrera]):
-            self.status_text.value = "Error: Complete los campos requeridos."
+            self.status_text.value = "Error: Complete todos los campos requeridos."
             self.update()
             return
 
@@ -707,7 +633,7 @@ class SmartFaceDashboard(ft.UserControl):
             semestre = 1
 
         if self.current_frame is not None and procesar_y_guardar_usuario:
-            ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
+            ruta_foto = f"fotos_registros/{cedula}.jpg"
             cv2.imwrite(ruta_foto, self.current_frame)
             procesar_y_guardar_usuario(
                 cedula=cedula, nombre=nombre, apellido=apellido,
@@ -730,7 +656,7 @@ class SmartFaceDashboard(ft.UserControl):
             self.update()
 
     # ==========================================
-    # VISTA 2: FINANZAS Y PAGOS (Con Tasa Automática)
+    # VISTA 2: FINANZAS Y PAGOS
     # ==========================================
     def vista_finanzas(self):
         txt_buscar_cedula = ft.TextField(
@@ -773,30 +699,56 @@ class SmartFaceDashboard(ft.UserControl):
         resultado_finanzas = ft.Column(expand=True, spacing=15, scroll=ft.ScrollMode.AUTO)
 
         def abrir_dialogo_pago(est_id, cuota_id, monto_cuota):
-            metodos_disponibles = [
-                "Transferencia",
-                "Pago Móvil",
-                "Tarjeta de Débito"
-            ]
             dd_metodo = ft.Dropdown(
                 label="Método de Pago",
-                value="Transferencia",
                 border_radius=10,
                 bgcolor=BG_COLOR,
                 color=TEXT_COLOR,
                 label_style=ft.TextStyle(color=TEXT_COLOR),
-                focused_border_color=ACCENT_BLUE,
-                options=[ft.dropdown.Option(m) for m in metodos_disponibles]
+                options=[
+                    ft.dropdown.Option("Pago Móvil"),
+                    ft.dropdown.Option("Tarjeta"),
+                    ft.dropdown.Option("Transferencia")
+                ],
+                value="Pago Móvil"
             )
-            
-            txt_referencia = ft.TextField(label="Referencia / Comprobante", border_radius=10, bgcolor=BG_COLOR)
+
+            txt_referencia = ft.TextField(
+                label="Nº de Referencia (Min. 4 dígitos)",
+                border_radius=10,
+                bgcolor=BG_COLOR,
+                color=TEXT_COLOR,
+                keyboard_type=ft.KeyboardType.NUMBER,
+                maxLength=12,
+                visible=True
+            )
+
             lbl_mensaje_modal = ft.Text("", size=12)
+
+            def cambiar_metodo(e):
+                metodo_sel = dd_metodo.value
+                if metodo_sel in ["Pago Móvil", "Transferencia"]:
+                    txt_referencia.visible = True
+                    txt_referencia.label = f"Nº Referencia {metodo_sel} (Min. 4 dígitos)"
+                else:  # Tarjeta
+                    txt_referencia.visible = False
+                    txt_referencia.value = ""
+                txt_referencia.update()
+
+            dd_metodo.on_change = cambiar_metodo
 
             def guardar_pago(e):
                 try:
                     monto = float(monto_cuota)
                     metodo = dd_metodo.value
-                    referencia = txt_referencia.value
+                    referencia = txt_referencia.value.strip() if txt_referencia.visible else "PUNTO DE VENTA"
+
+                    if metodo in ["Pago Móvil", "Transferencia"]:
+                        if not referencia.isdigit() or len(referencia) < 4:
+                            lbl_mensaje_modal.value = f"Ingrese un número de referencia válido (mínimo 4 dígitos numéricos para {metodo})."
+                            lbl_mensaje_modal.color = "#FF1744"
+                            lbl_mensaje_modal.update()
+                            return
 
                     with self.db._get_connection() as conn:
                         conn.execute(
@@ -812,21 +764,24 @@ class SmartFaceDashboard(ft.UserControl):
                     lbl_mensaje_modal.value = f"Error: {str(ex)}"
                     lbl_mensaje_modal.color = "#FF1744"
                     lbl_mensaje_modal.update()
-                    
-            tasa_euro = self.monitor_bcv.obtener_precio_euro()
-             
+
+            # Botón Modal "Confirmar Pago" con Gradiente
+            btn_confirmar_pago = crear_boton_gradiente("Confirmar Pago", on_click=guardar_pago)
+
             dlg = ft.AlertDialog(
                 title=ft.Text("Registrar Pago de Cuota", weight=ft.FontWeight.BOLD),
                 content=ft.Column(
-                    tight=True, spacing=10,
+                    tight=True, spacing=12,
                     controls=[
-                        ft.Text(f"Monto a pagar: €{float(monto_cuota):.2f} (Bs{float(monto_cuota) * tasa_euro:,.2f})\n", size=14, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE),
-                        dd_metodo, txt_referencia, lbl_mensaje_modal
+                        ft.Text(f"Monto a pagar: ${float(monto_cuota):.2f}", size=14, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE),
+                        dd_metodo,
+                        txt_referencia,
+                        lbl_mensaje_modal
                     ]
                 ),
                 actions=[
                     ft.TextButton("Cancelar", on_click=lambda e: setattr(self.page.dialog, 'open', False) or self.page.update()),
-                    ft.ElevatedButton("Confirmar Pago", bgcolor=ACCENT_BLUE, color="white", on_click=guardar_pago)
+                    btn_confirmar_pago
                 ]
             )
             self.page.dialog = dlg
@@ -849,7 +804,6 @@ class SmartFaceDashboard(ft.UserControl):
                 resultado_finanzas.update()
                 return
 
-            # --- OBTENER TASA DEL DÍA AUTOMÁTICA ---
             tasa_euro = self.monitor_bcv.obtener_precio_euro()
 
             try:
@@ -888,26 +842,12 @@ class SmartFaceDashboard(ft.UserControl):
                 monto_adeudado = monto_total - monto_pagado
                 porcentaje = int((pagadas_count / total_cuotas * 100)) if total_cuotas > 0 else 100
                 
-                # Evaluación de solvencia por fecha límite
                 fecha_hoy = datetime.date.today().strftime('%Y-%m-%d')
-                es_solvente = True
-                with self.db._get_connection() as conn:
-                    c_cursor = conn.execute(
-                        "SELECT id FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
-                        (int(periodo_id), fecha_hoy)
-                    )
-                    cuotas_vencidas = c_cursor.fetchall()
-                    if cuotas_vencidas:
-                        ids_vencidas = {row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas}
-                        for cv_id in ids_vencidas:
-                            if cv_id not in cuotas_pagadas_ids:
-                                es_solvente = False
-                                break
+                es_solvente = self._verificar_solvencia_estudiante(est_id, int(periodo_id), fecha_hoy)
 
                 color_estado = "#2E7D32" if es_solvente else "#FF1744"
                 estado_str = "SOLVENTE" if es_solvente else "MOROSO"
 
-                # Banner informativo con la tasa del BCV obtenida automáticamente
                 banner_tasa = neu_container(
                     padding=10,
                     content=ft.Row(
@@ -970,7 +910,6 @@ class SmartFaceDashboard(ft.UserControl):
                         c_venc = cuota['fecha_vencimiento'] if hasattr(cuota, 'keys') else cuota[4]
 
                         monto_bs = c_monto * tasa_euro
-
                         pagada = c_id in cuotas_pagadas_ids
                         estado_cuota = "Pagada" if pagada else "Pendiente"
                         color_badge = "#2E7D32" if pagada else "#FF1744"
@@ -985,9 +924,7 @@ class SmartFaceDashboard(ft.UserControl):
                                 ]
                             ),
                             ft.Container(
-                                padding=ft.padding.symmetric(horizontal=8, vertical=2),
-                                border_radius=5,
-                                bgcolor=color_badge,
+                                padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=5, bgcolor=color_badge,
                                 content=ft.Text(estado_cuota, size=10, color="white", weight=ft.FontWeight.BOLD)
                             )
                         ]
@@ -995,10 +932,7 @@ class SmartFaceDashboard(ft.UserControl):
                         if not pagada:
                             acciones_cuota.append(
                                 ft.IconButton(
-                                    icon=ft.icons.PAYMENTS,
-                                    icon_color=ACCENT_BLUE,
-                                    icon_size=18,
-                                    tooltip="Pagar cuota",
+                                    icon=ft.icons.PAYMENTS, icon_color=ACCENT_BLUE, icon_size=18, tooltip="Pagar cuota",
                                     on_click=lambda e, cid=c_id, monto=c_monto: abrir_dialogo_pago(est_id, cid, monto)
                                 )
                             )
@@ -1025,14 +959,8 @@ class SmartFaceDashboard(ft.UserControl):
 
             resultado_finanzas.update()
 
-        btn_consultar = ft.ElevatedButton(
-            "Consultar",
-            icon=ft.icons.SEARCH,
-            on_click=consultar_finanzas,
-            bgcolor=ACCENT_BLUE,
-            color="white",
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=15))
-        )
+        # Botón "Consultar" con Gradiente
+        btn_consultar = crear_boton_gradiente("Consultar", ft.icons.SEARCH, on_click=consultar_finanzas)
 
         return ft.Column(
             expand=True, spacing=20,
@@ -1049,7 +977,6 @@ class SmartFaceDashboard(ft.UserControl):
     # =======================================================
     def vista_periodos_cuotas(self):
         txt_nombre_periodo = self._neu_text_field("Nombre del Periodo (Ej. 2026-II)", ft.icons.CALENDAR_TODAY)
-        
         txt_fecha_inicio, row_fecha_inicio = self._crear_campo_fecha_con_picker("Fecha Inicio (AAAA-MM-DD)", ft.icons.DATE_RANGE)
         txt_fecha_fin, row_fecha_fin = self._crear_campo_fecha_con_picker("Fecha Fin (AAAA-MM-DD)", ft.icons.EVENT)
         lbl_msg_periodo = ft.Text("", size=12)
@@ -1067,16 +994,13 @@ class SmartFaceDashboard(ft.UserControl):
                 print(f"Error cargando periodos para cuotas: {ex}")
 
         dropdown_periodo_cuota = ft.Dropdown(
-            label="Periodo Académico Destino",
-            border_radius=15, bgcolor=BG_COLOR, color=TEXT_COLOR,
-            label_style=ft.TextStyle(color=TEXT_COLOR),
-            options=periodos_options
+            label="Periodo Académico Destino", border_radius=15, bgcolor=BG_COLOR, color=TEXT_COLOR,
+            label_style=ft.TextStyle(color=TEXT_COLOR), options=periodos_options
         )
         
         txt_num_cuota = self._neu_text_field("Número de Cuota (Ej. 1, 2, 3)", ft.icons.NUMBERS)
         txt_descripcion_cuota = self._neu_text_field("Descripción (Ej. Cuota 1)", ft.icons.DESCRIPTION)
         txt_monto_cuota = self._neu_text_field("Monto de Cuota (€)", ft.icons.EURO)
-        
         txt_vencimiento_cuota, row_vencimiento_cuota = self._crear_campo_fecha_con_picker("Fecha Vencimiento (AAAA-MM-DD)", ft.icons.TIMER)
         lbl_msg_cuota = ft.Text("", size=12)
 
@@ -1092,10 +1016,7 @@ class SmartFaceDashboard(ft.UserControl):
             
             try:
                 with self.db._get_connection() as conn:
-                    conn.execute(
-                        "INSERT INTO periodos (nombre, fecha_inicio, fecha_fin, activo) VALUES (?, ?, ?, 1)",
-                        (nombre, f_ini, f_fin)
-                    )
+                    conn.execute("INSERT INTO periodos (nombre, fecha_inicio, fecha_fin, activo) VALUES (?, ?, ?, 1)", (nombre, f_ini, f_fin))
                     conn.commit()
                 lbl_msg_periodo.value = "¡Periodo académico registrado con éxito!"
                 lbl_msg_periodo.color = "#2E7D32"
@@ -1150,6 +1071,10 @@ class SmartFaceDashboard(ft.UserControl):
                 lbl_msg_cuota.color = "#FF1744"
             lbl_msg_cuota.update()
 
+        # Botones de la vista Periodos y Cuotas con Gradiente
+        btn_guardar_periodo = crear_boton_gradiente("Guardar Periodo", on_click=registrar_periodo)
+        btn_crear_cuota = crear_boton_gradiente("Crear Cuota", on_click=crear_cuota_periodo)
+
         return ft.Column(
             expand=True, spacing=15,
             controls=[
@@ -1161,14 +1086,11 @@ class SmartFaceDashboard(ft.UserControl):
                         neu_container(
                             expand=True, padding=20,
                             content=ft.Column(
-                                scroll=ft.ScrollMode.AUTO,
-                                spacing=15,
+                                scroll=ft.ScrollMode.AUTO, spacing=15,
                                 controls=[
                                     ft.Row([ft.Icon(ft.icons.DATE_RANGE, color=ACCENT_BLUE), ft.Text("Nuevo Periodo Académico", size=16, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)]),
-                                    txt_nombre_periodo,
-                                    row_fecha_inicio,
-                                    row_fecha_fin,
-                                    ft.ElevatedButton("Guardar Periodo", bgcolor=ACCENT_BLUE, color="white", on_click=registrar_periodo),
+                                    txt_nombre_periodo, row_fecha_inicio, row_fecha_fin,
+                                    btn_guardar_periodo,
                                     lbl_msg_periodo
                                 ]
                             )
@@ -1176,16 +1098,11 @@ class SmartFaceDashboard(ft.UserControl):
                         neu_container(
                             expand=True, padding=20,
                             content=ft.Column(
-                                scroll=ft.ScrollMode.AUTO,
-                                spacing=15,
+                                scroll=ft.ScrollMode.AUTO, spacing=15,
                                 controls=[
                                     ft.Row([ft.Icon(ft.icons.PAYMENTS, color=ACCENT_BLUE), ft.Text("Definir Cuotas por Periodo", size=16, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)]),
-                                    dropdown_periodo_cuota,
-                                    txt_num_cuota,
-                                    txt_descripcion_cuota,
-                                    txt_monto_cuota,
-                                    row_vencimiento_cuota,
-                                    ft.ElevatedButton("Crear Cuota", bgcolor=ACCENT_BLUE, color="white", on_click=crear_cuota_periodo),
+                                    dropdown_periodo_cuota, txt_num_cuota, txt_descripcion_cuota, txt_monto_cuota, row_vencimiento_cuota,
+                                    btn_crear_cuota,
                                     lbl_msg_cuota
                                 ]
                             )
@@ -1204,7 +1121,6 @@ class SmartFaceDashboard(ft.UserControl):
         
         for log in logs:
             nombre = f"{log.get('nombre', '')} {log.get('apellido', '')}".strip()
-            # Omitir el registro si el estudiante fue eliminado (no tiene nombre o aparece como desconocido)
             if not nombre or nombre == "Desconocido" or not log.get('cedula'):
                 continue
                 
@@ -1245,6 +1161,13 @@ def main(page: ft.Page):
     page.window_height = 800
     
     dashboard = SmartFaceDashboard()
+    
+    def on_window_event(e):
+        if e.data == "close":
+            dashboard.scanning = False
+            page.window_destroy()
+
+    page.on_window_event = on_window_event
     page.add(dashboard)
     page.update()
 
