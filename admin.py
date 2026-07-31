@@ -535,7 +535,7 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_nombre.value = est.get("nombre", "")
         self.txt_apellido.value = est.get("apellido", "")
         self.txt_email.value = est.get("email", "")
-        self.txt_carrera.value = est.get("carrera", "")
+        self.dd_carrera.value = est.get("carrera", "")
         self.txt_semestre.value = str(est.get("semestre", 1))
         
         self.btn_accion_texto.value = "Actualizar Estudiante"
@@ -550,7 +550,7 @@ class SmartFaceDashboard(ft.UserControl):
         self.txt_nombre.value = ""
         self.txt_apellido.value = ""
         self.txt_email.value = ""
-        self.txt_carrera.value = ""
+        self.dd_carrera.value = ""
         self.txt_semestre.value = ""
         self.video_image.visible = False
         self.scanning = False
@@ -636,7 +636,7 @@ class SmartFaceDashboard(ft.UserControl):
         nombre = self.txt_nombre.value
         apellido = self.txt_apellido.value
         email = self.txt_email.value
-        carrera = self.txt_carrera.value
+        carrera = self.dd_carrera.value
         semestre_str = self.txt_semestre.value
 
         if not all([cedula, nombre, apellido, email, carrera]):
@@ -693,7 +693,7 @@ class SmartFaceDashboard(ft.UserControl):
         nombre = self.txt_nombre.value
         apellido = self.txt_apellido.value
         email = self.txt_email.value
-        carrera = self.txt_carrera.value
+        carrera = self.dd_carrera.value
         semestre_str = self.txt_semestre.value
 
         if not all([nombre, apellido, email, carrera]):
