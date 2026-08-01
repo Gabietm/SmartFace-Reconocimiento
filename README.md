@@ -14,8 +14,8 @@ SmartFace Pro es un sistema avanzado de control de acceso que utiliza reconocimi
 
 * **Semaforización Visual:**
 
-  *🟢 **Verde:** Acceso autorizado (Usuario Solvente / Activo).
-  *🔴 **Rojo:** Acceso restringido (Usuario Moroso / Inactivo).
+  * 🟢 **Verde:** Acceso autorizado (Usuario Solvente / Activo).
+  * 🔴 **Rojo:** Acceso restringido (Usuario Moroso / Inactivo).
 
 * **Arquitectura Multiproceso y Fluida:** Procesamiento asíncrono con frame skipping para asegurar una visualización de video sin interrupciones ni latencia.
 
