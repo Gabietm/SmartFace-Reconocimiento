@@ -13,6 +13,7 @@ import numpy as np
 import flet as ft
 from bd import UniversityDatabase  # Importación de la base de datos
 from tasa_bcv import MonitorBCV
+from config import FOTOS_DIR
 
 try:
     from _registrar_usuario import procesar_y_guardar_usuario
@@ -106,8 +107,8 @@ class SmartFaceDashboard(ft.UserControl):
                 ft.dropdown.Option("Ing. Mantenimiento Mecánico"),
                 ft.dropdown.Option("Ing. Sistemas"),
                 ft.dropdown.Option("Ing. Civil"),
-                ft.dropdown.Option("Ing. Diseño Industrial"),
-                ft.dropdown.Option("Ing. Producción"),
+                #ft.dropdown.Option("Ing. Diseño Industrial"),
+                #ft.dropdown.Option("Ing. Producción"),
                 ft.dropdown.Option("Ing. Electrónica"),
                 ft.dropdown.Option("Ing. Eléctrica"),
             ]
@@ -563,11 +564,11 @@ class SmartFaceDashboard(ft.UserControl):
             self.update()
             return
 
-        cedula = self.txt_cedula.value
-        nombre = self.txt_nombre.value
-        apellido = self.txt_apellido.value
-        email = self.txt_email.value
-        carrera = self.dd_carrera.value
+        cedula = self.txt_cedula.value.strip()
+        nombre = self.txt_nombre.value.capitalize()
+        apellido = self.txt_apellido.value.capitalize()
+        email = self.txt_email.value.strip()
+        carrera = self.dd_carrera.value.capitalize()
         semestre_str = self.txt_semestre.value
 
         if not all([cedula, nombre, apellido, email, carrera]):
@@ -581,8 +582,8 @@ class SmartFaceDashboard(ft.UserControl):
             return
 
         self.scanning = False
-        os.makedirs("fotos_registros", exist_ok=True)
-        ruta_foto = f"fotos_registros/{cedula}.jpg"
+        os.makedirs(FOTOS_DIR, exist_ok=True)
+        ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
         cv2.imwrite(ruta_foto, self.current_frame)
 
         try:
@@ -633,7 +634,7 @@ class SmartFaceDashboard(ft.UserControl):
             semestre = 1
 
         if self.current_frame is not None and procesar_y_guardar_usuario:
-            ruta_foto = f"fotos_registros/{cedula}.jpg"
+            ruta_foto = os.path.join(FOTOS_DIR, f"{cedula}.jpg")
             cv2.imwrite(ruta_foto, self.current_frame)
             procesar_y_guardar_usuario(
                 cedula=cedula, nombre=nombre, apellido=apellido,
@@ -710,16 +711,16 @@ class SmartFaceDashboard(ft.UserControl):
                     ft.dropdown.Option("Tarjeta"),
                     ft.dropdown.Option("Transferencia")
                 ],
-                value="Pago Móvil"
+                value="Transferencia"
             )
 
             txt_referencia = ft.TextField(
-                label="Nº de Referencia (Min. 4 dígitos)",
+                label="Nº de Referencia",
                 border_radius=10,
                 bgcolor=BG_COLOR,
                 color=TEXT_COLOR,
                 keyboard_type=ft.KeyboardType.NUMBER,
-                maxLength=12,
+                #maxLength=12,
                 visible=True
             )
 
@@ -729,7 +730,7 @@ class SmartFaceDashboard(ft.UserControl):
                 metodo_sel = dd_metodo.value
                 if metodo_sel in ["Pago Móvil", "Transferencia"]:
                     txt_referencia.visible = True
-                    txt_referencia.label = f"Nº Referencia {metodo_sel} (Min. 4 dígitos)"
+                    txt_referencia.label = f"Nº Referencia {metodo_sel}"
                 else:  # Tarjeta
                     txt_referencia.visible = False
                     txt_referencia.value = ""
@@ -745,7 +746,7 @@ class SmartFaceDashboard(ft.UserControl):
 
                     if metodo in ["Pago Móvil", "Transferencia"]:
                         if not referencia.isdigit() or len(referencia) < 4:
-                            lbl_mensaje_modal.value = f"Ingrese un número de referencia válido (mínimo 4 dígitos numéricos para {metodo})."
+                            lbl_mensaje_modal.value = f"Ingrese un número de referencia válido (Dígitos numéricos para {metodo})."
                             lbl_mensaje_modal.color = "#FF1744"
                             lbl_mensaje_modal.update()
                             return
@@ -766,21 +767,22 @@ class SmartFaceDashboard(ft.UserControl):
                     lbl_mensaje_modal.update()
 
             # Botón Modal "Confirmar Pago" con Gradiente
-            btn_confirmar_pago = crear_boton_gradiente("Confirmar Pago", on_click=guardar_pago)
+            btn_confirmar_pago = crear_boton_gradiente("Confirmar Pago", on_click=guardar_pago, width=150)
+            tasa_euro = self.monitor_bcv.obtener_precio_euro()
 
             dlg = ft.AlertDialog(
                 title=ft.Text("Registrar Pago de Cuota", weight=ft.FontWeight.BOLD),
                 content=ft.Column(
                     tight=True, spacing=12,
                     controls=[
-                        ft.Text(f"Monto a pagar: ${float(monto_cuota):.2f}", size=14, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE),
+                        ft.Text(f"Monto a pagar: ${float(monto_cuota):.2f} (Bs{float(monto_cuota) * tasa_euro:,.2f})\n", size=14, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE),
                         dd_metodo,
                         txt_referencia,
                         lbl_mensaje_modal
                     ]
                 ),
                 actions=[
-                    ft.TextButton("Cancelar", on_click=lambda e: setattr(self.page.dialog, 'open', False) or self.page.update()),
+                    ft.TextButton("Cancelar", on_click=lambda e: setattr(self.page.dialog, 'open', False) or self.page.update(),width=150),
                     btn_confirmar_pago
                 ]
             )

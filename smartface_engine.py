@@ -9,6 +9,7 @@ from ultralytics import YOLO
 import supervision as sv
 from config import UMBRAL_RECONOCIMIENTO, MODELO_YOLO, DB_PATH
 from bd import UniversityDatabase
+import time
 
 def worker_ia(cola_entrada, cola_salida, db_path):
     """Worker que procesa los rostros en paralelo utilizando una ruta de BD propia para evitar conflictos"""
@@ -98,6 +99,7 @@ class SmartFaceEngine:
         
         self.resultados = {}
         self.en_proceso = set()
+        self.tiempo_inicio = time.time()
         print("🚀 Motor de reconocimiento facial optimizado iniciado exitosamente.")
     
     def procesar_frame(self, frame):
@@ -105,8 +107,8 @@ class SmartFaceEngine:
         h, w, _ = frame.shape
         
         # Definir una Zona de Interés (ROI) central del 70% para filtrar falsos positivos
-        margin_x = int(w * 0.15)
-        margin_y = int(h * 0.15)
+        margin_x = int(w * 0.20)
+        margin_y = int(h * 0.20)
         roi_box = [margin_x, margin_y, w - margin_x, h - margin_y]
         
         # Detectar personas usando YOLOv8
@@ -152,7 +154,7 @@ class SmartFaceEngine:
                 elif tracker_id in self.en_proceso:
                     nombre = "Analizando..."
                 else:
-                    # Recortar región del rostro de manera segura dentro de los límites del frame
+
                     rx1, ry1 = max(0, x1), max(0, y1)
                     rx2, ry2 = min(w, x2), min(h, y2)
                     recorte = frame[ry1:ry2, rx1:rx2].copy()
@@ -162,8 +164,25 @@ class SmartFaceEngine:
                         self.cola_entrada.put((tracker_id, recorte))
                     nombre = "Analizando..."
                     
+        tiempo_transcurrido = time.time() - self.tiempo_inicio
+        hay_exito = any(r.get("id") is not None for r in self.resultados.values())
+
+        if tiempo_transcurrido >= 5 and not hay_exito and len(detections) == 0:
+            color_guia = (0, 140, 255)
+            
+            cv2.rectangle(frame, (roi_box[0], roi_box[1]), (roi_box[2], roi_box[3]), color_guia, 2)
+
+            cv2.putText(
+                frame, 
+                "Ubique su rostro aqui", 
+                (roi_box[0], roi_box[1] - 10), 
+                cv2.FONT_HERSHEY_SIMPLEX, 
+                0.6, 
+                color_guia, 
+                2
+            )
         return frame
-    
+
     def obtener_ultimo_estudiante(self):
         """Retorna el último registro de estudiante identificado con éxito"""
         if self.resultados:
@@ -184,6 +203,7 @@ class SmartFaceEngine:
         """Limpia los resultados anteriores para permitir un nuevo escaneo limpio"""
         self.resultados.clear()
         self.en_proceso.clear()
+        self.tiempo_inicio = time.time()
         self.recargar_datos()
     
     def cerrar(self):

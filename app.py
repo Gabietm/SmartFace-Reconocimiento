@@ -15,6 +15,7 @@ from smartface_engine import SmartFaceEngine
 from bd import UniversityDatabase
 from config import DB_PATH
 from tasa_bcv import MonitorBCV
+from config import FOTOS_DIR
 
 # ============================================
 # PALETA DE COLORES ADOBE COLOR
@@ -166,7 +167,7 @@ class UniversityApp(ft.Container):
             ruta_encontrada = None
             
             for ext in extensiones:
-                candidato = os.path.join("fotos_registros", f"{cedula}{ext}")
+                candidato = os.path.join(FOTOS_DIR, f"{cedula}{ext}")
                 posibles = [candidato, os.path.join(os.getcwd(), candidato), os.path.abspath(candidato)]
                 
                 for p in posibles:
@@ -344,7 +345,7 @@ class UniversityApp(ft.Container):
         )
     
     def _build_camera_section(self):
-        btn_escanear = crear_boton_gradiente("Escanear", on_click=self._start_scan)
+        btn_escanear = crear_boton_gradiente("Escanear", on_click=self._start_scan, height=40, width=200)
 
         self.camera_content = ft.Column(
             alignment=ft.MainAxisAlignment.CENTER,
@@ -563,7 +564,7 @@ class UniversityApp(ft.Container):
         color_estado = ACCENT_BLUE if es_activo else "#FF1744"
         texto_estado = "Activo/Solvente" if es_activo else "Moroso/Inactivo"
 
-        btn_volver_escanear = crear_boton_gradiente("Volver a escanear", on_click=self._reset_scanner)
+        btn_volver_escanear = crear_boton_gradiente("Volver a escanear", on_click=self._reset_scanner, height=40, width=200)
 
         self.camera_content.controls = [
             ft.Icon(ft.icons.CHECK_CIRCLE, size=60, color=color_estado),
@@ -591,7 +592,7 @@ class UniversityApp(ft.Container):
         ]
             
         self.video_image.visible = False
-        btn_escanear = crear_boton_gradiente("Escanear", on_click=self._start_scan)
+        btn_escanear = crear_boton_gradiente("Escanear", on_click=self._start_scan, height=40, width=200)
 
         self.camera_content.controls = [
             self.video_image,
