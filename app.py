@@ -87,10 +87,12 @@ class UniversityApp(ft.Container):
         self.active_tab = "Escaner"
         self.scanning = False
         self.engine = None
+        self.cap = None  # Instancia de la cámara pre-cargada
         self.monitor_bcv = MonitorBCV()
         
-        # Pre-cargar el motor de IA en segundo plano al abrir la app
+        # Pre-cargar el motor de IA y la cámara en segundo plano al abrir la app
         threading.Thread(target=self._pre_cargar_motor, daemon=True).start()
+        threading.Thread(target=self._pre_cargar_camara, daemon=True).start()
         
         # Píxel transparente en Base64
         self.transparent_pixel = (
@@ -401,6 +403,18 @@ class UniversityApp(ft.Container):
                 print("✅ Motor de IA pre-cargado y listo para usar.")
             except Exception as e:
                 print(f"Error al pre-cargar el motor de IA: {e}")
+    
+    def _pre_cargar_camara(self):
+        """Inicializa la cámara en segundo plano al arrancar la app para acceso instantáneo"""
+        if self.cap is None:
+            try:
+                print("⏳ Pre-cargando la cámara en segundo plano...")
+                self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                print("✅ Cámara pre-cargada y lista para usar.")
+            except Exception as e:
+                print(f"Error al pre-cargar la cámara: {e}")
 
     # --------------------------------------------
     # LÓGICA DE INTEGRACIÓN CON OPENCV
@@ -428,10 +442,18 @@ class UniversityApp(ft.Container):
             
         if not self.scanning:
             return
-            
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        
+        # Reutilizar la cámara pre-cargada (o abrirla si por alguna razón no se inicializó antes)
+        if self.cap is None or not self.cap.isOpened():
+            try:
+                self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            except Exception as e:
+                print(f"Error al abrir la cámara en el bucle: {e}")
+                return
+        
+        cap = self.cap
         
         self.video_image.visible = True
         self.camera_content.controls = [self.video_image]
