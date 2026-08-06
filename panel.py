@@ -2,8 +2,6 @@ import flet as ft
 import cv2
 import subprocess
 import sys
-import app
-import admin
 from smartface_engine import SmartFaceEngine
 
 def main(page: ft.Page):
@@ -12,12 +10,22 @@ def main(page: ft.Page):
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.window_width = 450
-    page.window_height = 700
+    page.window_height = 650
     page.window_resizable = False
     
-    engine = SmartFaceEngine()
+    # Motor de IA diferido para no ralentizar el inicio en PCs de bajo rendimiento
+    engine = None
 
-    # Datos simulados del Administrador (Preguntas de Seguridad y Clave)
+    def get_engine():
+        nonlocal engine
+        if engine is None:
+            page.snack_bar = ft.SnackBar(ft.Text("Cargando motor biométrico por primera vez..."))
+            page.snack_bar.open = True
+            page.update()
+            engine = SmartFaceEngine()
+        return engine
+
+    # Datos simulados del Administrador
     admin_data = {
         "nombre": "admin",
         "edad": "30",
@@ -28,57 +36,64 @@ def main(page: ft.Page):
         "password": "admin"
     }
 
-    # Campos de recuperación de contraseña
+    # Campos de recuperación de contraseña optimizados
     rec_inputs = {
-        "nombre": ft.TextField(label="Nombre", width=350),
-        "edad": ft.TextField(label="Edad", width=350),
-        "cedula": ft.TextField(label="Cédula", width=350),
-        "email": ft.TextField(label="Email", width=350),
-        "codigo_postal": ft.TextField(label="Código Postal", width=350),
-        "familiar": ft.TextField(label="Familiar Cercano", width=350),
+        "nombre": ft.TextField(label="Nombre", width=350, dense=True),
+        "edad": ft.TextField(label="Edad", width=350, dense=True),
+        "cedula": ft.TextField(label="Cédula", width=350, dense=True),
+        "email": ft.TextField(label="Email", width=350, dense=True),
+        "codigo_postal": ft.TextField(label="Código Postal", width=350, dense=True),
+        "familiar": ft.TextField(label="Familiar Cercano", width=350, dense=True),
     }
 
-    new_pass_input = ft.TextField(label="Nueva Contraseña", password=True, can_reveal_password=True, width=350)
-    confirm_pass_input = ft.TextField(label="Confirmar Contraseña", password=True, can_reveal_password=True, width=350)
-    admin_pass_input = ft.TextField(label="Contraseña de Administrador", password=True, can_reveal_password=True, width=350)
+    new_pass_input = ft.TextField(label="Nueva Contraseña", password=True, can_reveal_password=True, width=350, dense=True)
+    confirm_pass_input = ft.TextField(label="Confirmar Contraseña", password=True, can_reveal_password=True, width=350, dense=True)
+    admin_pass_input = ft.TextField(label="Contraseña de Administrador", password=True, can_reveal_password=True, width=350, dense=True)
 
-    # Contenedor dinámico principal para las vistas
     content_area = ft.Column(alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-
-    # Funciones de Navegación usando Subprocess para abrir app.py o admin.py independientemente
-    def cambiar_a_app(e=None):
-        page.window_destroy()
-        try:
-            subprocess.Popen([sys.executable, "app.py"])
-        except Exception as ex:
-            print(f"Error al abrir app.py: {ex}")
 
     def cambiar_a_admin(e=None):
         page.window_destroy()
         try:
-            subprocess.Popen([sys.executable, "admin.py"])
+            # Ejecuta admin.py capturando errores si los hubiera
+            proceso = subprocess.Popen([sys.executable, "admin.py"], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+            stdout, stderr = proceso.communicate()
+            if proceso.returncode != 0:
+                print(f"Error al ejecutar admin.py: {stderr.decode('utf-8')}")
         except Exception as ex:
-            print(f"Error al abrir admin.py: {ex}")
+            print(f"Excepción crítica al abrir admin.py: {ex}")
 
-    # Autenticación Biométrica para Administrador
+    # Autenticación Biométrica optimizada para bajo rendimiento
     def login_biometrico(e):
+        try:
+            face_engine = get_engine()
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Error al iniciar IA: {ex}"))
+            page.snack_bar.open = True
+            page.update()
+            return
+
         cap = cv2.VideoCapture(0)
-        page.snack_bar = ft.SnackBar(ft.Text("Escaneando rostro del administrador..."))
+        # Reducir resolución para aligerar la carga en computadoras lentas
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        page.snack_bar = ft.SnackBar(ft.Text("Escaneando rostro... Mire a la cámara"))
         page.snack_bar.open = True
         page.update()
         
         authenticated = False
-        for _ in range(30):
+        for _ in range(25): # Reducido a 25 iteraciones para agilizar
             ret, frame = cap.read()
             if not ret:
                 break
             
-            results = engine.reconocer(frame) if hasattr(engine, 'reconocer') else []
+            results = face_engine.reconocer(frame) if hasattr(face_engine, 'reconocer') else []
             if results:
                 authenticated = True
                 break
             
-            cv2.imshow("Verificacion Facial - Presione Q para salir", frame)
+            cv2.imshow("Verificacion - Presione Q para salir", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
@@ -99,7 +114,7 @@ def main(page: ft.Page):
         if admin_pass_input.value == admin_data["password"]:
             cambiar_a_admin()
         else:
-            page.snack_bar = ft.SnackBar(ft.Text("Contraseña de administrador incorrecta"))
+            page.snack_bar = ft.SnackBar(ft.Text("Contraseña incorrecta"))
             page.snack_bar.open = True
             page.update()
 
@@ -135,16 +150,7 @@ def main(page: ft.Page):
             page.snack_bar.open = True
             page.update()
 
-    # --- DEFINICIÓN DE VISTAS ---
-
-    def mostrar_vista_usuario(e=None):
-        content_area.controls.clear()
-        content_area.controls.extend([
-            ft.Text("Acceso para Usuarios", size=16, weight=ft.FontWeight.BOLD),
-            ft.Container(height=20),
-            ft.ElevatedButton("Acceder al Sistema", color=ft.colors.WHITE, bgcolor=ft.colors.BLUE, on_click=cambiar_a_app)
-        ])
-        page.update()
+    # --- VISTAS ---
 
     def mostrar_vista_admin(e=None):
         admin_pass_input.value = ""
@@ -165,12 +171,12 @@ def main(page: ft.Page):
         content_area.controls.clear()
         controls_list = [
             ft.Text("Preguntas de Seguridad", size=16, weight=ft.FontWeight.BOLD),
-            ft.Container(height=10)
+            ft.Container(height=5)
         ]
         for field in rec_inputs.values():
             field.value = ""
             controls_list.append(field)
-            controls_list.append(ft.Container(height=5))
+            controls_list.append(ft.Container(height=2))
         
         controls_list.append(ft.ElevatedButton("Validar Respuestas", color=ft.colors.WHITE, bgcolor=ft.colors.ORANGE, on_click=verificar_preguntas))
         controls_list.append(ft.TextButton("Volver al Login", on_click=mostrar_vista_admin))
@@ -193,32 +199,17 @@ def main(page: ft.Page):
         ])
         page.update()
 
-    # Selector de Rol (Dropdown principal)
-    rol_dropdown = ft.Dropdown(
-        label="Seleccione Rol",
-        value="Usuario",
-        options=[
-            ft.dropdown.Option("Usuario"),
-            ft.dropdown.Option("Administrador")
-        ],
-        on_change=lambda e: mostrar_vista_usuario() if e.control.value == "Usuario" else mostrar_vista_admin(),
-        width=350
-    )
-
-    # Layout Principal de la Ventana de Login con el título requerido
+    # Layout Principal
     page.add(
         ft.Column([
-            # Título Institucional
             ft.Container(
                 content=ft.Column([
                     ft.Text("Bienvenido al", size=15, color=ft.colors.GREY_700),
                     ft.Text("Instituto Politécnico", size=18, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_900),
                     ft.Text("Santiago Mariño", size=18, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_900),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                padding=ft.padding.only(bottom=15)
+                padding=ft.padding.only(bottom=10)
             ),
-            rol_dropdown,
-            ft.Container(height=10),
             content_area
         ], 
         alignment=ft.MainAxisAlignment.START, 
@@ -226,8 +217,7 @@ def main(page: ft.Page):
         )
     )
 
-    # Inicializar por defecto en la vista Usuario
-    mostrar_vista_usuario()
+    mostrar_vista_admin()
 
 if __name__ == "__main__":
     ft.app(target=main)
