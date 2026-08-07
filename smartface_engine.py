@@ -1,218 +1,199 @@
-"""
-smartface_engine.py - Motor de reconocimiento facial optimizado para SmartFace Pro
-"""
-
-import multiprocessing as mp
 import cv2
 import numpy as np
-from ultralytics import YOLO
-import supervision as sv
-from config import UMBRAL_RECONOCIMIENTO, MODELO_YOLO, DB_PATH
-from bd import UniversityDatabase
-import time
+import os
+import sqlite3
+import pickle
 
-def worker_ia(cola_entrada, cola_salida, db_path):
-    """Worker que procesa los rostros en paralelo utilizando una ruta de BD propia para evitar conflictos"""
-    
-    db = UniversityDatabase(db_path)
-    
+try:
     from insightface.app import FaceAnalysis
-    app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-    app.prepare(ctx_id=0, det_size=(640, 480))
-    
-    usuarios = db.obtener_todos_estudiantes()
-    print(f"🧠 Worker iniciado con {len(usuarios)} estudiantes cargados correctamente.")
-    
-    while True:
-        mensaje = cola_entrada.get()
-        if mensaje is None:
-            break
-            
-        tracker_id, recorte = mensaje
-        
-        # Señal para recargar estudiantes desde la base de datos
-        if tracker_id == "RELOAD":
-            usuarios = db.obtener_todos_estudiantes()
-            print(f"🔄 Worker recargó la base de datos. Total estudiantes: {len(usuarios)}")
-            continue
-            
-        if tracker_id is None:
-            break
-            
-        resultado = {
-            "id": None,
-            "nombre": "Desconocido",
-            "es_activo": False,
-            "similitud": 0.0
-        }
-        
-        if recorte is not None and recorte.size > 0:
-            try:
-                faces = app.get(recorte)
-                if len(faces) > 0:
-                    emb = faces[0].embedding
-                    distancia_min = UMBRAL_RECONOCIMIENTO
-                    
-                    for u in usuarios:
-                        if u["firma"] is not None:
-                            firma_u = np.array(u["firma"])
-                            norm_emb = np.linalg.norm(emb)
-                            norm_firma = np.linalg.norm(firma_u)
-                            
-                            if norm_emb > 0 and norm_firma > 0:
-                                distancia = 1 - np.dot(emb, firma_u) / (norm_emb * norm_firma)
-                                
-                                if distancia < distancia_min:
-                                    distancia_min = distancia
-                                    resultado = {
-                                        "id": u["id"],
-                                        "nombre": u["nombre"],
-                                        "es_activo": u["es_activo"],
-                                        "similitud": float(1 - distancia_min)
-                                    }
-            except Exception as e:
-                print(f"Error procesando rostro en worker: {e}")
-                
-        cola_salida.put((tracker_id, resultado))
+except ImportError:
+    FaceAnalysis = None
 
 class SmartFaceEngine:
-    """Motor de reconocimiento facial optimizado para control de acceso universitario"""
-    
-    def __init__(self, db_path=DB_PATH):
+    def __init__(self, db_path="base_de_datos"):
         self.db_path = db_path
-        self.db = UniversityDatabase(db_path)
         
-        # Inicializar YOLO para detección de personas
-        self.model = YOLO(MODELO_YOLO)
-        self.tracker = sv.ByteTrack()
+        self._ultimo_estudiante = {
+            "nombre": "Esperando escaneo...",
+            "cedula": "",
+            "solvencia": "0%",
+            "morosidad": "0%"
+        }
         
-        # Colas de comunicación segura para multiprocesamiento
-        self.cola_entrada = mp.Queue()
-        self.cola_salida = mp.Queue()
-        
-        # Lanzar el proceso worker pasando la ruta de la BD (evita errores de conexión compartida)
-        self.worker = mp.Process(
-            target=worker_ia, 
-            args=(self.cola_entrada, self.cola_salida, self.db_path)
-        )
-        self.worker.start()
-        
-        self.resultados = {}
-        self.en_proceso = set()
-        self.tiempo_inicio = time.time()
-        print("🚀 Motor de reconocimiento facial optimizado iniciado exitosamente.")
-    
-    def procesar_frame(self, frame):
-        """Procesa el fotograma aplicando filtros de región central y gestión asíncrona"""
-        h, w, _ = frame.shape
-        
-        # Definir una Zona de Interés (ROI) central del 70% para filtrar falsos positivos
-        margin_x = int(w * 0.20)
-        margin_y = int(h * 0.20)
-        roi_box = [margin_x, margin_y, w - margin_x, h - margin_y]
-        
-        # Detectar personas usando YOLOv8
-        results = self.model(frame, verbose=False, classes=[0])[0]
-        detections = sv.Detections.from_ultralytics(results)
-        detections = self.tracker.update_with_detections(detections)
-        
-        # Vaciar la cola de resultados del worker de forma no bloqueante
-        while not self.cola_salida.empty():
-            try:
-                t_id, resultado = self.cola_salida.get_nowait()
-                self.resultados[t_id] = resultado
-                self.en_proceso.discard(t_id)
-                
-                # Registrar log en base de datos si el estudiante fue reconocido con éxito
-                if resultado.get("id") is not None:
-                    self.db.registrar_log(
-                        estudiante_id=resultado["id"],
-                        similitud=resultado["similitud"],
-                        reconocido=True
-                    )
-            except Exception:
-                break
-                
-        if len(detections) > 0:
-            for i, tracker_id in enumerate(detections.tracker_id):
-                if tracker_id is None:
-                    continue
-                
-                x1, y1, x2, y2 = detections.xyxy[i].astype(int)
-                
-                # Validar si la persona se encuentra dentro de la zona central de escaneo (ROI)
-                centro_x = (x1 + x2) // 2
-                centro_y = (y1 + y2) // 2
-                en_roi = (roi_box[0] <= centro_x <= roi_box[2]) and (roi_box[1] <= centro_y <= roi_box[3])
-                
-                if not en_roi:
-                    continue # Omitir detecciones fuera del área central de control
-                
-                if tracker_id in self.resultados:
-                    resultado = self.resultados[tracker_id]
-                    nombre = resultado["nombre"]
-                elif tracker_id in self.en_proceso:
-                    nombre = "Analizando..."
-                else:
-
-                    rx1, ry1 = max(0, x1), max(0, y1)
-                    rx2, ry2 = min(w, x2), min(h, y2)
-                    recorte = frame[ry1:ry2, rx1:rx2].copy()
-                    
-                    if recorte.size > 0:
-                        self.en_proceso.add(tracker_id)
-                        self.cola_entrada.put((tracker_id, recorte))
-                    nombre = "Analizando..."
-                    
-        tiempo_transcurrido = time.time() - self.tiempo_inicio
-        hay_exito = any(r.get("id") is not None for r in self.resultados.values())
-
-        if tiempo_transcurrido >= 5 and not hay_exito and len(detections) == 0:
-            color_guia = (0, 140, 255)
+        if FaceAnalysis:
+            self.app = FaceAnalysis(name="buffalo_l", providers=['CPUExecutionProvider'])
+            self.app.prepare(ctx_id=0, det_size=(640, 640))
+        else:
+            self.app = None
             
-            cv2.rectangle(frame, (roi_box[0], roi_box[1]), (roi_box[2], roi_box[3]), color_guia, 2)
+        self.conocidos_embeddings = []
+        self.conocidos_datos = []
+        self.cargar_datos()
 
-            cv2.putText(
-                frame, 
-                "Ubique su rostro aqui", 
-                (roi_box[0], roi_box[1] - 10), 
-                cv2.FONT_HERSHEY_SIMPLEX, 
-                0.6, 
-                color_guia, 
-                2
-            )
-        return frame
+    def cargar_datos(self):
+        """Carga los embeddings y datos imprimiendo el estado en consola"""
+        self.conocidos_embeddings = []
+        self.conocidos_datos = []
+        
+        # Cargar administrador si existe
+        ruta_admin = os.path.join(self.db_path, "admin_embedding.pkl")
+        if os.path.exists(ruta_admin):
+            with open(ruta_admin, "rb") as f:
+                admin_emb = pickle.load(f)
+                self.conocidos_embeddings.append(admin_emb)
+                self.conocidos_datos.append({
+                    "nombre": "Administrador",
+                    "cedula": "ADMIN",
+                    "solvencia": "100%",
+                    "morosidad": "0%"
+                })
+            print("[DEBUG] Administrador cargado correctamente.")
+
+        # Buscar base de datos de estudiantes
+        db_file = os.path.join(self.db_path, "database.db")
+        if not os.path.exists(db_file) and os.path.exists("database.db"):
+            db_file = "database.db"
+
+        print(f"[DEBUG] Buscando base de datos en: {db_file}")
+
+        if os.path.exists(db_file):
+            try:
+                conn = sqlite3.connect(db_file)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT cedula, nombres, apellidos FROM estudiantes")
+                estudiantes = cursor.fetchall()
+                conn.close()
+
+                print(f"[DEBUG] Estudiantes encontrados en BD: {len(estudiantes)}")
+
+                fotos_dir = "fotos"
+                if not os.path.exists(fotos_dir):
+                    print(f"[ADVERTENCIA] La carpeta '{fotos_dir}' no existe en el directorio de trabajo.")
+
+                for est in estudiantes:
+                    cedula = str(est['cedula']).strip()
+                    nombre_completo = f"{est['nombres']} {est['apellidos']}"
+                    
+                    ruta_foto = None
+                    for ext in ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG']:
+                        candidato = os.path.join(fotos_dir, f"{cedula}{ext}")
+                        if os.path.exists(candidato):
+                            ruta_foto = candidato
+                            break
+                    
+                    if ruta_foto and self.app:
+                        img = cv2.imread(ruta_foto)
+                        if img is not None:
+                            faces = self.app.get(img)
+                            if faces:
+                                self.conocidos_embeddings.append(faces[0].embedding)
+                                self.conocidos_datos.append({
+                                    "nombre": nombre_completo,
+                                    "cedula": cedula,
+                                    "solvencia": "100%",
+                                    "morosidad": "0%"
+                                })
+                                print(f"[ÉXITO] Embedding cargado para: {nombre_completo} (Cédula: {cedula})")
+                            else:
+                                print(f"[ERROR] No se detectó ningún rostro en la foto: {ruta_foto}")
+                        else:
+                            print(f"[ERROR] No se pudo leer la imagen: {ruta_foto}")
+                    else:
+                        print(f"[ERROR] No se encontró foto para la cédula '{cedula}' en la carpeta '{fotos_dir}'")
+            except Exception as e:
+                print(f"[ERROR] Excepción al conectar con la base de datos: {e}")
+        else:
+            print("[ADVERTENCIA] No se encontró archivo de base de datos SQLite.")
+
+        print(f"[DEBUG] Total de rostros conocidos cargados en memoria: {len(self.conocidos_embeddings)}")
+
+    def recargar_datos(self):
+        self.cargar_datos()
 
     def obtener_ultimo_estudiante(self):
-        """Retorna el último registro de estudiante identificado con éxito"""
-        if self.resultados:
-            for tracker_id in reversed(list(self.resultados.keys())):
-                resultado = self.resultados[tracker_id]
-                if resultado.get("id") is not None:
-                    return resultado
-        return None
-    
-    def recargar_datos(self):
-        """Envía una señal al proceso worker para actualizar los rostros y estados desde la BD"""
-        try:
-            self.cola_entrada.put(("RELOAD", None))
-        except Exception as e:
-            print(f"Error al enviar orden de recarga al worker: {e}")
-            
+        return self._ultimo_estudiante
+
     def reiniciar_sesion(self):
-        """Limpia los resultados anteriores para permitir un nuevo escaneo limpio"""
-        self.resultados.clear()
-        self.en_proceso.clear()
-        self.tiempo_inicio = time.time()
-        self.recargar_datos()
-    
+        self._ultimo_estudiante = {
+            "nombre": "Esperando escaneo...",
+            "cedula": "",
+            "solvencia": "0%",
+            "morosidad": "0%"
+        }
+
+    def procesar_frame(self, frame):
+        if self.app is None:
+            return frame
+
+        h, w, _ = frame.shape
+        
+        box_w, box_h = 300, 300
+        x1 = (w - box_w) // 2
+        y1 = (h - box_h) // 2
+        x2 = x1 + box_w
+        y2 = y1 + box_h
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.putText(
+            frame, 
+            "Coloque su rostro aqui", 
+            (x1, max(y1 - 10, 20)), 
+            cv2.FONT_HERSHEY_SIMPLEX, 
+            0.6, 
+            (255, 0, 0), 
+            2
+        )
+
+        faces = self.app.get(frame)
+
+        for face in faces:
+            bbox = face.bbox.astype(int)
+            emb = face.embedding
+            fx1, fy1, fx2, fy2 = bbox[0], bbox[1], bbox[2], bbox[3]
+            
+            face_center_x = (fx1 + fx2) // 2
+            face_center_y = (fy1 + fy2) // 2
+            en_cuadro = (x1 <= face_center_x <= x2) and (y1 <= face_center_y <= y2)
+
+            if en_cuadro:
+                if len(self.conocidos_embeddings) > 0:
+                    max_sim = 0.0
+                    mejor_idx = -1
+                    
+                    for i, conocido_emb in enumerate(self.conocidos_embeddings):
+                        sim = np.dot(emb, conocido_emb) / (np.linalg.norm(emb) * np.linalg.norm(conocido_emb))
+                        if sim > max_sim:
+                            max_sim = sim
+                            mejor_idx = i
+
+                    # Imprime en consola la similitud en tiempo real para calibración
+                    print(f"[ESCANEO] Similitud máxima calculada: {max_sim:.4f}")
+
+                    if max_sim >= 0.38 and mejor_idx != -1:
+                        datos = self.conocidos_datos[mejor_idx]
+                        self._ultimo_estudiante = {
+                            "nombre": datos["nombre"],
+                            "cedula": datos["cedula"],
+                            "solvencia": datos["solvencia"],
+                            "morosidad": "0%"
+                        }
+                        cv2.rectangle(frame, (fx1, fy1), (fx2, fy2), (0, 255, 0), 2)
+                        cv2.putText(frame, f"{datos['nombre']} ({max_sim*100:.1f}%)", (fx1, max(fy1 - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                        break
+                    else:
+                        cv2.rectangle(frame, (fx1, fy1), (fx2, fy2), (0, 0, 255), 2)
+                        cv2.putText(frame, f"Desconocido ({max_sim*100:.1f}%)", (fx1, max(fy1 - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                else:
+                    cv2.rectangle(frame, (fx1, fy1), (fx2, fy2), (0, 0, 255), 2)
+                    cv2.putText(frame, "Sin base de datos / Sin foto", (fx1, max(fy1 - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            else:
+                cv2.rectangle(frame, (fx1, fy1), (fx2, fy2), (0, 0, 255), 2)
+
+        return frame
+
+    def reconocer(self, frame):
+        return self.procesar_frame(frame)
+
     def cerrar(self):
-        """Finaliza ordenadamente el proceso worker de IA y libera recursos"""
-        try:
-            self.cola_entrada.put((None, None))
-            self.worker.join(timeout=2)
-            if self.worker.is_alive():
-                self.worker.terminate()
-        except Exception:
-            pass
-        print("🛑 Motor de reconocimiento facial cerrado correctamente.")
+        pass

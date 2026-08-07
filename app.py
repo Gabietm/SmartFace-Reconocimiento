@@ -1,5 +1,5 @@
 """
-app.py - Aplicación para Flet (0.21.2+) con Integración OpenCV + YOLO
+app.py - Aplicación para Flet (0.21.2+) con Integración OpenCV + SmartFaceEngine
 Diseño Neumórfico con Paleta Adobe Color & Gradiente Moderno
 """
 
@@ -12,10 +12,6 @@ import os
 import datetime
 
 from smartface_engine import SmartFaceEngine
-from bd import UniversityDatabase
-from config import DB_PATH
-from tasa_bcv import MonitorBCV
-from config import FOTOS_DIR
 
 # ============================================
 # PALETA DE COLORES ADOBE COLOR
@@ -73,28 +69,27 @@ def crear_boton_gradiente(texto, icon=None, on_click=None, height=45, width=None
     )
 
 # ============================================
-# CLASE PRINCIPAL (Migrada a ft.Container)
+# CLASE PRINCIPAL DE LA APLICACIÓN
 # ============================================
 
 class UniversityApp(ft.Container):
     
-    def __init__(self):
+    def __init__(self, page: ft.Page):
         super().__init__()
+        self.page = page
         self.bgcolor = BG_COLOR
         self.expand = True
         self.padding = ft.padding.all(30)
         
-        self.active_tab = "Escaner"
         self.scanning = False
         self.engine = None
         self.cap = None  # Instancia de la cámara pre-cargada
-        self.monitor_bcv = MonitorBCV()
         
         # Pre-cargar el motor de IA y la cámara en segundo plano al abrir la app
         threading.Thread(target=self._pre_cargar_motor, daemon=True).start()
         threading.Thread(target=self._pre_cargar_camara, daemon=True).start()
         
-        # Píxel transparente en Base64
+        # Píxel transparente en Base64 para inicializar la imagen
         self.transparent_pixel = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
         )
@@ -144,111 +139,42 @@ class UniversityApp(ft.Container):
         )
     
     def _update_sidebar_student(self, estudiante):
-        """Actualiza la barra lateral con los datos detallados del estudiante reconocido"""
-        es_activo = estudiante.get('es_activo', False)
+        """Actualiza la barra lateral con los datos del estudiante reconocido"""
+        nombre = estudiante.get('nombre', 'Desconocido')
+        cedula = estudiante.get('cedula', 'N/A')
+        solvencia = estudiante.get('solvencia', '0%')
+        morosidad = estudiante.get('morosidad', '0%')
+        
+        es_activo = nombre != "Desconocido" and nombre != "Esperando escaneo..."
         color_estado = ACCENT_BLUE if es_activo else "#FF1744"
-        texto_estado = "Solvente" if es_activo else "Moroso / Inactivo"
         
-        nombres = estudiante.get('nombre') or estudiante.get('nombres', '')
-        apellidos = estudiante.get('apellido') or estudiante.get('apellidos', '')
-        nombre_completo = f"{nombres} {apellidos}".strip()
-        if not nombre_completo:
-            nombre_completo = estudiante.get('nombre', 'Desconocido')
-
-        cedula = str(estudiante.get('cedula', '')).strip()
-        image_control = ft.Image(
-            src_base64=self.transparent_pixel,
-            width=110,
-            height=110,
-            fit=ft.ImageFit.COVER,
-            border_radius=55
-        )
-        
-        if cedula:
-            extensiones = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
-            ruta_encontrada = None
-            
-            for ext in extensiones:
-                candidato = os.path.join(FOTOS_DIR, f"{cedula}{ext}")
-                posibles = [candidato, os.path.join(os.getcwd(), candidato), os.path.abspath(candidato)]
-                
-                for p in posibles:
-                    if p and os.path.exists(p):
-                        ruta_encontrada = p
-                        break
-                if ruta_encontrada:
-                    break
-            
-            if ruta_encontrada:
-                try:
-                    with open(ruta_encontrada, "rb") as f_img:
-                        b64_img = base64.b64encode(f_img.read()).decode('utf-8')
-                        image_control.src_base64 = b64_img
-                except Exception as e:
-                    print(f"Error al leer la foto con cédula {cedula}: {e}")
-
-        cuota = estudiante.get('cuota_pendiente', 'Cuota de Inscripción')
-        precio_euro = estudiante.get('precio_euro', 0.0)
-        precio_bs = estudiante.get('precio_bs', 0.0)
-
         info_controls = [
-            ft.Container(
-                content=image_control,
-                border=ft.border.all(3, color_estado),
-                border_radius=60,
-                padding=2
-            ),
+            ft.Icon(ft.icons.VERIFIED_USER, size=50, color=color_estado),
             ft.Column([
-                ft.Text("Estudiante", size=11, color="#7F8C8D", weight=ft.FontWeight.BOLD),
-                ft.Text(nombre_completo, size=15, weight=ft.FontWeight.BOLD, color=TEXT_COLOR, text_align=ft.TextAlign.CENTER)
+                ft.Text("Estudiante / Usuario", size=11, color="#7F8C8D", weight=ft.FontWeight.BOLD),
+                ft.Text(nombre, size=16, weight=ft.FontWeight.BOLD, color=TEXT_COLOR, text_align=ft.TextAlign.CENTER)
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
                 ft.Icon(ft.icons.BADGE_OUTLINED, size=16, color=ACCENT_MID),
-                ft.Text(f"Cédula: {cedula or 'N/A'}", size=13, color=TEXT_COLOR)
+                ft.Text(f"Cédula: {cedula}", size=13, color=TEXT_COLOR)
             ], spacing=8),
             ft.Row([
-                ft.Icon(ft.icons.SCHOOL_OUTLINED, size=16, color=ACCENT_MID),
-                ft.Text(f"Carrera: {estudiante.get('carrera', 'N/A')}", size=13, color=TEXT_COLOR)
+                ft.Icon(ft.icons.PERCENT, size=16, color=ACCENT_MID),
+                ft.Text(f"Solvencia: {solvencia}", size=13, color=TEXT_COLOR)
             ], spacing=8),
             ft.Row([
-                ft.Icon(ft.icons.TIMELINE, size=16, color=ACCENT_MID),
-                ft.Text(f"Semestre: {estudiante.get('semestre', 'N/A')}", size=13, color=TEXT_COLOR)
+                ft.Icon(ft.icons.WARNING_OUTLINED, size=16, color="#FF1744"),
+                ft.Text(f"Morosidad: {morosidad}", size=13, color=TEXT_COLOR)
             ], spacing=8),
-            ft.Divider(height=1, color="#D0D5DD")
-        ]
-
-        solvencia_controls = [
-            ft.Row([
-                ft.Icon(ft.icons.VERIFIED_USER_OUTLINED, size=16, color=color_estado),
-                ft.Text(f"Estado: {texto_estado}", size=13, weight=ft.FontWeight.BOLD, color=color_estado)
-            ], spacing=8)
-        ]
-
-        if not es_activo:
-            solvencia_controls.append(
-                ft.Container(
-                    bgcolor="#FDEDEC",
-                    padding=10,
-                    border_radius=10,
-                    content=ft.Column([
-                        ft.Text("Deuda pendiente:", size=11, weight=ft.FontWeight.BOLD, color="#C0392B"),
-                        ft.Text(f"• {cuota}", size=12, color=TEXT_COLOR),
-                        ft.Text(f"• €{precio_euro:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
-                        ft.Text(f"• Bs. {precio_bs:.2f}", size=12, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
-                    ], spacing=2)
-                )
-            )
-
-        info_controls.extend(solvencia_controls)
-        info_controls.append(
+            ft.Divider(height=1, color="#D0D5DD"),
             ft.Container(
-                margin=ft.margin.only(top=5),
+                margin=ft.margin.only(top=10),
                 content=ft.Row([
-                    ft.Icon(ft.icons.CHECK_CIRCLE if es_activo else ft.icons.WARNING_AMBER_ROUNDED, size=28, color=color_estado),
+                    ft.Icon(ft.icons.CHECK_CIRCLE if es_activo else ft.icons.INFO, size=20, color=color_estado),
                     ft.Text("Verificado por SmartFace", size=11, color="#7F8C8D", italic=True)
                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=5)
             )
-        )
+        ]
 
         self.sidebar_content.controls = info_controls
         self.update()
@@ -258,79 +184,41 @@ class UniversityApp(ft.Container):
     # --------------------------------------------
     def _build_main_area(self):
         self.stats_section = self._build_stats_section()
-        return ft.Column(
+        
+        btn_cerrar = ft.IconButton(
+            icon=ft.icons.CLOSE,
+            icon_color=TEXT_COLOR,
+            tooltip="Cerrar aplicación",
+            on_click=lambda e: self._cerrar_app()
+        )
+        
+        header_row = ft.Row(
+            alignment=ft.MainAxisAlignment.END,
+            controls=[btn_cerrar]
+        )
+
+        main_column = ft.Column(
             expand=True,
-            spacing=30,
+            spacing=15,
             controls=[
+                header_row,
                 self._build_camera_section(),
                 self.stats_section
             ]
         )
+        return main_column
+        
+    def _cerrar_app(self):
+        self.scanning = False
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        self.page.window_destroy()
         
     def _build_stats_section(self):
-        total = 0
-        pct_solv = 0
-        pct_mor = 0
-
-        try:
-            db = UniversityDatabase(DB_PATH)
-            estudiantes = db.obtener_todos_estudiantes()
-            total = len(estudiantes)
-            
-            if total > 0:
-                fecha_hoy = datetime.date.today().strftime('%Y-%m-%d')
-                periodo_activo_id = None
-                
-                with db._get_connection() as conn:
-                    p_cursor = conn.execute("SELECT id FROM periodos WHERE activo = 1 LIMIT 1")
-                    p_row = p_cursor.fetchone()
-                    if p_row:
-                        periodo_activo_id = p_row['id'] if hasattr(p_row, 'keys') else p_row[0]
-
-                activos = 0
-                for est in estudiantes:
-                    est_id = est['id'] if hasattr(est, 'keys') else est[0]
-                    es_solvente = True
-                    
-                    if periodo_activo_id:
-                        with db._get_connection() as conn:
-                            c_cursor = conn.execute(
-                                "SELECT id FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
-                                (periodo_activo_id, fecha_hoy)
-                            )
-                            cuotas_vencidas = c_cursor.fetchall()
-                            
-                            if cuotas_vencidas:
-                                ids_cuotas_vencidas = [row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas]
-                                placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
-                                
-                                p_cursor = conn.execute(
-                                    f"SELECT DISTINCT cuota_id FROM pagos WHERE estudiante_id = ? AND cuota_id IN ({placeholders})",
-                                    [est_id] + ids_cuotas_vencidas
-                                )
-                                pagos_vencidos = p_cursor.fetchall()
-                                ids_pagados = {row['cuota_id'] if hasattr(row, 'keys') else row[0] for row in pagos_vencidos}
-                                
-                                for c_id in ids_cuotas_vencidas:
-                                    if c_id not in ids_pagados:
-                                        es_solvente = False
-                                        break
-                    
-                    if es_solvente:
-                        activos += 1
-
-                inactivos = total - activos
-                pct_solv = (activos / total) * 100
-                pct_mor = (inactivos / total) * 100
-        except Exception as e:
-            print(f"Error al cargar estadísticas: {e}")
-
         return ft.Row(
-            height=200,
+            height=180,
             spacing=30,
             controls=[
-                neu_container(shape=ft.BoxShape.CIRCLE, width=200, content=self._build_circular_chart("Solvencia", pct_solv, ACCENT_BLUE)),
-                neu_container(shape=ft.BoxShape.CIRCLE, width=200, content=self._build_circular_chart("Morosidad", pct_mor, "#FF1744")),
                 neu_container(
                     expand=True,
                     content=ft.Column(
@@ -338,8 +226,9 @@ class UniversityApp(ft.Container):
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=5,
                         controls=[
-                            ft.Text("Estudiantes registrados:", size=16, color=TEXT_COLOR),
-                            ft.Text(str(total), size=48, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE)
+                            ft.Text("Estado del Sistema", size=16, color=TEXT_COLOR),
+                            ft.Text("Activo", size=32, weight=ft.FontWeight.BOLD, color=ACCENT_BLUE),
+                            ft.Text("Motor InsightFace listo", size=12, color="#7F8C8D")
                         ]
                     )
                 )
@@ -369,58 +258,34 @@ class UniversityApp(ft.Container):
             )
         )
 
-    def _build_circular_chart(self, label, percentage, color):
-        return ft.Stack(
-            controls=[
-                ft.Container(
-                    alignment=ft.alignment.center,
-                    content=ft.ProgressRing(
-                        value=percentage / 100, color=color, bgcolor=BG_COLOR,
-                        stroke_width=12, width=140, height=140
-                    )
-                ),
-                ft.Container(
-                    alignment=ft.alignment.center,
-                    content=ft.Column(
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=0,
-                        controls=[
-                            ft.Text(f"{int(percentage)}%", size=28, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
-                            ft.Text(label, size=12, color=TEXT_COLOR)
-                        ]
-                    )
-                )
-            ]
-        )
-    
     def _pre_cargar_motor(self):
-        """Inicializa el motor YOLO e InsightFace de forma silenciosa al arrancar la app"""
+        """Inicializa el motor de IA en segundo plano al arrancar"""
         if self.engine is None:
             try:
-                print("⏳ Pre-cargando motor de IA en segundo plano...")
+                print("⏳ Pre-cargando SmartFaceEngine en segundo plano...")
                 self.engine = SmartFaceEngine()
-                print("✅ Motor de IA pre-cargado y listo para usar.")
+                print("✅ Motor SmartFaceEngine listo.")
             except Exception as e:
-                print(f"Error al pre-cargar el motor de IA: {e}")
+                print(f"Error al pre-cargar SmartFaceEngine: {e}")
     
     def _pre_cargar_camara(self):
-        """Inicializa la cámara en segundo plano al arrancar la app para acceso instantáneo"""
+        """Inicializa la cámara en segundo plano"""
         if self.cap is None:
             try:
-                print("⏳ Pre-cargando la cámara en segundo plano...")
+                print("⏳ Pre-cargando la cámara...")
                 self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                print("✅ Cámara pre-cargada y lista para usar.")
+                print("✅ Cámara lista.")
             except Exception as e:
                 print(f"Error al pre-cargar la cámara: {e}")
 
     # --------------------------------------------
-    # LÓGICA DE INTEGRACIÓN CON OPENCV
+    # LÓGICA DE ESCANEO Y HILO DE CÁMARA
     # --------------------------------------------
     def _start_scan(self, e):
-        if self.scanning: return
+        if self.scanning: 
+            return
         self.scanning = True
         
         if self.engine:
@@ -430,31 +295,32 @@ class UniversityApp(ft.Container):
         self.camera_content.controls = [
             self.video_image,
             ft.ProgressRing(color=ACCENT_BLUE, width=40, height=40),
-            ft.Text("Iniciando motor YOLO y cámara...", size=16, weight=ft.FontWeight.W_500, color=TEXT_COLOR)
+            ft.Text("Iniciando cámara y motor de IA...", size=16, weight=ft.FontWeight.W_500, color=TEXT_COLOR)
         ]
         self.update()
 
         threading.Thread(target=self._camera_loop, daemon=True).start()
 
     def _camera_loop(self):
+        print("DEBUG: Iniciando hilo de cámara...")
+        
         while self.engine is None and self.scanning:
             time.sleep(0.1)
             
         if not self.scanning:
             return
         
-        # Reutilizar la cámara pre-cargada (o abrirla si por alguna razón no se inicializó antes)
-        if self.cap is None or not self.cap.isOpened():
-            try:
-                self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            except Exception as e:
-                print(f"Error al abrir la cámara en el bucle: {e}")
-                return
-        
         cap = self.cap
-        
+        if cap is None or not cap.isOpened():
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            
+        if not cap.isOpened():
+            print("ERROR CRÍTICO: No se pudo abrir la cámara.")
+            self.scanning = False
+            return
+
         self.video_image.visible = True
         self.camera_content.controls = [self.video_image]
         try:
@@ -462,142 +328,65 @@ class UniversityApp(ft.Container):
         except Exception:
             pass
 
-        frame_count = 0
-        frame_procesado = None
+        print("DEBUG: Bucle de video en ejecución.")
 
-        while self.scanning and cap.isOpened():
-            ret, frame = cap.read()
-            if not ret: break
+        try:
+            while self.scanning:
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    print("DEBUG: Frame vacío de la cámara.")
+                    time.sleep(0.05)
+                    continue
 
-            frame_count += 1
+                # Procesar frame mediante el motor de IA
+                if self.engine:
+                    frame_procesado = self.engine.procesar_frame(frame)
+                else:
+                    frame_procesado = frame
 
-            if frame_count % 2 == 0:
-                frame_procesado = self.engine.procesar_frame(frame)
-            elif frame_procesado is not None:
-                pass
-            else:
-                frame_procesado = frame
+                # Codificar a JPG para Flet
+                success, buffer = cv2.imencode('.jpg', frame_procesado, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if not success:
+                    continue
+                    
+                img_base64 = base64.b64encode(buffer).decode('utf-8')
+                
+                self.video_image.src_base64 = img_base64
+                try:
+                    self.update()
+                except Exception:
+                    break
 
-            _, buffer = cv2.imencode('.jpg', frame_procesado, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            img_base64 = base64.b64encode(buffer).decode('utf-8')
-            
-            self.video_image.src_base64 = img_base64
-            try:
-                self.update()
-            except Exception:
-                break
-
-            estudiante = self.engine.obtener_ultimo_estudiante()
-            
-            if estudiante and estudiante.get("id") is not None:
-                self.scanning = False
-                self._show_result(estudiante)
-                break
-            
-            time.sleep(0.01)
-
-        cap.release()
+                # Verificar si se detectó un estudiante válido
+                if self.engine:
+                    estudiante = self.engine.obtener_ultimo_estudiante()
+                    nombre = estudiante.get("nombre", "")
+                    if nombre and nombre != "Esperando escaneo...":
+                        print(f"DEBUG: ¡Reconocido con éxito: {nombre}!")
+                        self.scanning = False
+                        self._show_result(estudiante)
+                        break
+                
+                time.sleep(0.02)
+                
+        except Exception as ex:
+            print(f"EXCEPCIÓN EN BUCLE DE CÁMARA: {ex}")
+        finally:
+            print("DEBUG: Hilo de cámara finalizado.")
 
     def _show_result(self, estudiante):
         self.video_image.visible = False
-        estudiante_completo = estudiante.copy()
+        self._update_sidebar_student(estudiante)
         
-        try:
-            db = UniversityDatabase(DB_PATH)
-            todos_los_estudiantes = db.obtener_todos_estudiantes()
-            
-            est_id = estudiante.get('id')
-            est_nombre = estudiante.get('nombre')
-            
-            reg_encontrado = None
-            for reg in todos_los_estudiantes:
-                if (est_id is not None and str(reg.get('id')) == str(est_id)) or (reg.get('nombre') == est_nombre):
-                    reg_encontrado = reg
-                    break
-            
-            if reg_encontrado:
-                estudiante_completo.update(reg_encontrado)
-                est_id_real = reg_encontrado.get('id')
-                
-                fecha_hoy = datetime.date.today().strftime('%Y-%m-%d')
-                periodo_activo_id = None
-                
-                with db._get_connection() as conn:
-                    p_cursor = conn.execute("SELECT id FROM periodos WHERE activo = 1 LIMIT 1")
-                    p_row = p_cursor.fetchone()
-                    if p_row:
-                        periodo_activo_id = p_row['id'] if hasattr(p_row, 'keys') else p_row[0]
-
-                es_solvente = True
-                if periodo_activo_id and est_id_real:
-                    tasa_euro = self.monitor_bcv.obtener_precio_euro()
-                    
-                    with db._get_connection() as conn:
-                        c_cursor = conn.execute(
-                            "SELECT * FROM cuotas WHERE periodo_id = ? AND fecha_vencimiento <= ?",
-                            (periodo_activo_id, fecha_hoy)
-                        )
-                        cuotas_vencidas = c_cursor.fetchall()
-                        
-                        if cuotas_vencidas:
-                            ids_cuotas_vencidas = [row['id'] if hasattr(row, 'keys') else row[0] for row in cuotas_vencidas]
-                            placeholders = ','.join(['?'] * len(ids_cuotas_vencidas))
-                            
-                            p_cursor = conn.execute(
-                                f"SELECT DISTINCT cuota_id FROM pagos WHERE estudiante_id = ? AND cuota_id IN ({placeholders})",
-                                [est_id_real] + ids_cuotas_vencidas
-                            )
-                            pagos_vencidos = p_cursor.fetchall()
-                            ids_pagados = {row['cuota_id'] if hasattr(row, 'keys') else row[0] for row in pagos_vencidos}
-                            
-                            for c in cuotas_vencidas:
-                                c_id = c['id'] if hasattr(c, 'keys') else c[0]
-                                if c_id not in ids_pagados:
-                                    es_solvente = False
-                                    keys = c.keys() if hasattr(c, 'keys') else []
-                                    
-                                    c_nombre = 'Cuota Pendiente'
-                                    for k in ['nombre', 'descripcion', 'concepto', 'titulo']:
-                                        if k in keys:
-                                            c_nombre = c[k]
-                                            break
-                                            
-                                    c_euro = 0.0
-                                    for k in ['monto_euro', 'precio_euro', 'monto', 'euro']:
-                                        if k in keys:
-                                            c_euro = c[k]
-                                            break
-                                            
-                                    c_bs = c_euro * tasa_euro if tasa_euro > 0 else 0.0
-                                    
-                                    estudiante_completo['cuota_pendiente'] = c_nombre
-                                    estudiante_completo['precio_euro'] = c_euro
-                                    estudiante_completo['precio_bs'] = c_bs
-                                    break
-                
-                estudiante_completo['es_activo'] = es_solvente
-
-        except Exception as e:
-            print(f"Error al consultar la BD para el perfil lateral: {e}")
-
-        self._update_sidebar_student(estudiante_completo)
-        
-        es_activo = estudiante_completo.get('es_activo', False)
-        color_estado = ACCENT_BLUE if es_activo else "#FF1744"
-        texto_estado = "Activo/Solvente" if es_activo else "Moroso/Inactivo"
-
-        btn_volver_escanear = crear_boton_gradiente("Volver a escanear", on_click=self._reset_scanner, height=40, width=200)
+        nombre = estudiante.get('nombre', 'Desconocido')
+        btn_volver = crear_boton_gradiente("Volver a escanear", on_click=self._reset_scanner, height=40, width=200)
 
         self.camera_content.controls = [
-            ft.Icon(ft.icons.CHECK_CIRCLE, size=60, color=color_estado),
-            ft.Text(f"¡Identificado: {estudiante_completo.get('nombre', 'Desconocido')}!", size=22, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
-            ft.Text(f"Similitud: {estudiante_completo.get('similitud', 0)*100:.1f}%", size=14, color=TEXT_COLOR),
-            ft.Text(f"Estado: {texto_estado}", size=16, weight=ft.FontWeight.BOLD, color=color_estado),
-            btn_volver_escanear
+            ft.Icon(ft.icons.CHECK_CIRCLE, size=60, color=ACCENT_BLUE),
+            ft.Text(f"¡Identificado: {nombre}!", size=22, weight=ft.FontWeight.BOLD, color=TEXT_COLOR),
+            ft.Text(f"Cédula: {estudiante.get('cedula', 'N/A')}", size=14, color=TEXT_COLOR),
+            btn_volver
         ]
-        
-        new_stats = self._build_stats_section()
-        self.stats_section.controls = new_stats.controls
         self.update()
 
     def _reset_scanner(self, e):
@@ -622,9 +411,6 @@ class UniversityApp(ft.Container):
             ft.Text("Cámara (Inactiva)", size=18, weight=ft.FontWeight.W_500, color=TEXT_COLOR),
             btn_escanear
         ]
-        
-        new_stats = self._build_stats_section()
-        self.stats_section.controls = new_stats.controls
         self.update()
 
 # ============================================
@@ -639,14 +425,14 @@ def main(page: ft.Page):
     page.window_width = 1200
     page.window_height = 800
     
-    app = UniversityApp()
+    app = UniversityApp(page)
     
     page.window_prevent_close = True
     def window_event(e):
         if e.data == "close":
             app.scanning = False
-            if app.engine:
-                app.engine.cerrar()
+            if app.cap and app.cap.isOpened():
+                app.cap.release()
             page.window_destroy()
             
     page.on_window_event = window_event

@@ -163,7 +163,7 @@ def main(page: ft.Page):
             ft.ElevatedButton("Iniciar Sesión", color=ft.colors.WHITE, bgcolor=ft.colors.GREEN, on_click=validar_admin_pass),
             ft.TextButton("¿Olvidó su contraseña?", on_click=lambda _: mostrar_vista_recuperacion()),
             ft.Divider(),
-            ft.ElevatedButton("📷 Acceso Biométrico Facial", color=ft.colors.WHITE, bgcolor=ft.colors.PURPLE, on_click=login_biometrico)
+            
         ])
         page.update()
 
